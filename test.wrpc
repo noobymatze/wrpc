@@ -1,0 +1,4 @@
+data Greet {
+    name: String,
+    test: Boolean,
+}

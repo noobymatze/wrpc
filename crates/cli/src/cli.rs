@@ -1,0 +1,81 @@
+use clap::Parser;
+use compiler::error::{self as wrpc, syntax};
+use compiler::reporting::WrpcDocBuilder;
+use std::path::PathBuf;
+use std::{fs, io};
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+pub struct Cli {
+    /// Name of the person to greet
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Parser, Debug)]
+enum Command {
+    // Does stuff
+    #[command()]
+    Check {
+        #[arg()]
+        file: PathBuf,
+    },
+    // Does stuff
+    #[command()]
+    Parse {
+        #[arg()]
+        file: PathBuf,
+    },
+}
+
+#[derive(Debug)]
+pub enum Error {
+    Io(io::Error),
+}
+
+impl From<io::Error> for Error {
+    fn from(value: io::Error) -> Self {
+        Error::Io(value)
+    }
+}
+
+pub fn parse() -> Cli {
+    Cli::parse()
+}
+
+pub fn run(cli: Cli) -> Result<(), Error> {
+    match cli.command {
+        Command::Check { file } => {
+            let result = fs::read_to_string(&file)?;
+            let str = result.as_str();
+            if let Err(wrpc::Error::BadSyntax(errors)) = compiler::parse(Some(file), str) {
+                render_errors(str, errors);
+            }
+        }
+        Command::Parse { file } => {
+            let result = fs::read_to_string(&file)?;
+            let str = result.as_str();
+            match compiler::parse(Some(file), str) {
+                Ok(module) => println!("{module:?}"),
+
+                Err(wrpc::Error::BadSyntax(errors)) => {
+                    render_errors(str, errors);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn render_errors(str: &str, errors: Vec<syntax::Error>) {
+    let alloc = WrpcDocBuilder::new(str);
+    for error in errors {
+        match error {
+            wrpc::syntax::Error::ParseError(error) => {
+                let report = error.to_report(&alloc);
+                println!("{}", report.render(compiler::reporting::Target::Terminal));
+            }
+        }
+    }
+}
