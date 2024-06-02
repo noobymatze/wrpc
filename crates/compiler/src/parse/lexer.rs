@@ -121,7 +121,7 @@ impl<T: Iterator<Item = char>> Lexer<T> {
                     Some('t') => result.push('\t'),
                     Some('n') => result.push('\n'),
                     Some('\\') => result.push('\\'),
-                    Some(c) => {
+                    Some(_) => {
                         return Err(error::Token::String(
                             self.line,
                             self.col,
@@ -348,7 +348,7 @@ impl SymbolExt for char {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error;
+
     use crate::error::syntax;
     use crate::parse::lexer::lexer;
     use crate::parse::token::Token;
@@ -358,7 +358,7 @@ mod tests {
         let input = "";
         let mut lexer = lexer(input);
 
-        let token = lexer.next();
+        lexer.next();
         assert!(lexer.next().is_none());
     }
 
@@ -372,7 +372,7 @@ mod tests {
             token,
             Some(Ok((_, Token::Identifier(ref id)))) if id == "foo"
         ));
-        let token = lexer.next();
+        lexer.next();
         assert!(lexer.next().is_none());
     }
 
@@ -391,7 +391,7 @@ mod tests {
             assert!(matches!(token, Some(Ok((_, ref t))) if t == &expected));
         }
 
-        let token = lexer.next();
+        lexer.next();
         assert!(lexer.next().is_none());
     }
 
@@ -426,7 +426,7 @@ mod tests {
             token,
             Some(Ok((_, Token::Identifier(ref id)))) if id == "foo_bar"
         ));
-        let token = lexer.next();
+        lexer.next();
         assert!(lexer.next().is_none());
     }
 

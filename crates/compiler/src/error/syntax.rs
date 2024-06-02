@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::reporting::{Col, Line, Position, Report, WrpcDocBuilder};
 /// ! This module contains all potential syntax errors
 /// ! of the wRPC language.
-use crate::{ast, parse, reporting::Region};
+use crate::{parse, reporting::Region};
 
 /// A convenience [`Result`][Result] for working with
 /// syntax errors.
@@ -130,31 +130,31 @@ impl Decl {
                     alloc.snippet(&Region::from_position(&Position { line: *line, col: *col }, &Position { line: *line, col: *col }))
                 ]) 
             },
-            Decl::Start(line, col) => Report {
+            Decl::Start(_, _) => Report {
                 title: "DATA DECLARATION".to_owned(),
                  doc: alloc.stack([alloc.reflow("Test")]) 
                 },
-            Decl::DataName(Name::BadToken(bad_token)) => Report {
+            Decl::DataName(Name::BadToken(_)) => Report {
                 title: "DATA DECLARATION".to_owned(),
                  doc: alloc.stack([alloc.reflow("Test")]) 
                 },
 
-            Decl::DataName(Name::ExpectedName(line, col)) => Report {
+            Decl::DataName(Name::ExpectedName(_, _)) => Report {
                 title: "DATA DECLARATION".to_owned(),
                  doc: alloc.stack([alloc.reflow("Test")]) 
                 },
-            Decl::Property(Property::MissingComma(region)) => Report {
-                title: format!("MISSING PROPERTY NAME"),
+            Decl::Property(Property::MissingComma(_)) => Report {
+                title: "MISSING PROPERTY NAME".to_string(),
                 //region: region.clone(),
                 doc: alloc.stack([
                     alloc.reflow("I am missing a comma in a ")
                 ]),
             },
             Decl::MissingPropertySeparator(region) => Report {
-                title: format!("MISSING PROPERTY SEPARATOR"),
+                title: "MISSING PROPERTY SEPARATOR".to_string(),
                 doc: alloc.stack([
                     alloc.reflow("I missed a separator between two properties."),
-                    alloc.snippet(&region),
+                    alloc.snippet(region),
                     alloc.reflow("Properties can be declared in the form of `name: Type,`. Please add a comma.")
                 ])
             },
@@ -166,14 +166,14 @@ impl Decl {
                 ])
             },
             Decl::Property(Property::MissingType(region)) => Report {
-                title: format!("MISSING PROPERTY TYPE"),
+                title: "MISSING PROPERTY TYPE".to_string(),
                 doc: alloc.stack([
                     alloc.reflow(format!(
                         "I found a property with the name `{}`, but \
                              cannot find a type associated with this property.",
                         "Test",
                     )),
-                    alloc.snippet(&region),
+                    alloc.snippet(region),
                 ])
             },
             Decl::Property(Property::BadName(_)) => Report { title: "BAD PROPERTY NAME".to_owned(), doc: alloc.stack([alloc.reflow("TEST")]) },

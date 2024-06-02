@@ -2,7 +2,7 @@ use crate::ast::{Data, Decl, Meta, Module, Name, Property, Type};
 use crate::error::syntax;
 use crate::parse::lexer::LexResult;
 use crate::parse::token::Token;
-use crate::reporting::{Col, Line, Position, Region};
+use crate::reporting::{Position, Region};
 use std::path::PathBuf;
 use std::vec;
 
@@ -73,7 +73,7 @@ where
                 self.parse_data(None, vec![]).map(|x| Some(Decl::Data(x)))
             }
             Some(Ok((region, _))) => Err(syntax::Decl::Start(region.start.line, region.start.col)),
-            Some(Err(tok)) => Err(syntax::Decl::Start(0, 0)),
+            Some(Err(_)) => Err(syntax::Decl::Start(0, 0)),
             //Some((_, Token::Enum)) => self
             //    .parse_enum(comment, annotations)
             //    .map(|x| Some(Decl::Enum(x))),
@@ -103,10 +103,10 @@ where
         }
 
         Ok(Data {
-            annotations: annotations,
+            annotations,
             doc_comment: comment,
-            name: name,
-            properties: properties,
+            name,
+            properties,
         })
     }
 
@@ -136,16 +136,16 @@ where
     fn parse_type(&mut self) -> Result<Type, syntax::Type> {
         let name = self.expect_name().map_err(syntax::Type::BadName)?;
         Ok(Type {
-            name: name,
+            name,
             variables: vec![],
         })
     }
 
     // HELPERS
 
-    fn check(&mut self, expected: Token) -> bool {
-        matches!(self.peek(), Some(token) if token == &expected)
-    }
+    //fn check(&mut self, expected: Token) -> bool {
+    //    matches!(self.peek(), Some(token) if token == &expected)
+    //}
 
     fn matches(&mut self, expected: Token) -> bool {
         if matches!(self.peek(), Some(token) if token == &expected) {
@@ -216,18 +216,18 @@ mod tests {
     #[test]
     fn test_data_decl_without_braces_is_ok() {
         let result = parse(None, "data Test");
-        assert!(matches!(result, Ok(_)))
+        assert!(result.is_ok())
     }
 
     #[test]
     fn test_data_decl_with_missing_ending_brace_errors() {
         let result = parse(None, "data Test {");
-        assert!(matches!(result, Err(_)))
+        assert!(result.is_err())
     }
 
     #[test]
     fn test_data_decl_with_ending_brace_is_ok() {
         let result = parse(None, "data Test {}");
-        assert!(matches!(result, Ok(_)))
+        assert!(result.is_ok())
     }
 }

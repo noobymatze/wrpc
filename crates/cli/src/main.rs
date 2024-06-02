@@ -1,4 +1,3 @@
-use compiler::error;
 
 use crate::cli::Error;
 
