@@ -10,6 +10,8 @@ pub enum Token {
     Data,
     Service,
     Enum,
+    Def,
+    Comment(String),
     Identifier(String),
     Symbol(Vec<String>, String),
     String(String),

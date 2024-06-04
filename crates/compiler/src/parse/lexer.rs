@@ -66,6 +66,7 @@ impl<T: Iterator<Item = char>> Lexer<T> {
             '}' => self.emit(Token::RBrace),
             ',' => self.emit(Token::Comma),
             ':' => self.emit(Token::Colon),
+            '/' => self.consume_comment()?,
             // '"' => self.consume_string(c)?,
             // ':' => self.consume_keyword(c)?,
             c if c.is_whitespace() => {
@@ -185,6 +186,7 @@ impl<T: Iterator<Item = char>> Lexer<T> {
             "data" => self.emit(Token::Data),
             "service" => self.emit(Token::Service),
             "enum" => self.emit(Token::Enum),
+            "def" => self.emit(Token::Def),
             _ => self.emit(Token::Identifier(result)),
         };
 
@@ -218,6 +220,31 @@ impl<T: Iterator<Item = char>> Lexer<T> {
             }
             str => self.emit(Token::Symbol(vec![], str.to_string())),
         }
+
+        Ok(())
+    }
+
+    /// Emits a comment [Token].
+    ///
+    /// A comment is identified by the following rule:
+    ///
+    /// - Starts with `//` and goes until the end of the line.
+    ///
+    fn consume_comment(&mut self) -> Result<(), error::Token> {
+        if matches!(self.peek(), Some(c) if c != '/') {
+            return Err(error::Token::Comment(
+                error::Comment::Start,
+                self.line,
+                self.col,
+            ));
+        }
+        self.advance(); // Consume '/'
+
+        let mut content = String::new();
+        while !matches!(self.peek(), None) && !matches!(self.peek(), Some(c) if c == '\n') {
+            content.push(self.advance().unwrap())
+        }
+        self.emit(Token::Comment(content.trim().into()));
 
         Ok(())
     }

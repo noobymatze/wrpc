@@ -1,4 +1,14 @@
+// Hallo Welt!
 data Greet {
+    // Test
+    // Multiline Test
     name: String,
+    // Multiline Test
     test: Boolean,
+}
+
+service Foo {
+
+    def foo(name: String): Greet
+
 }

@@ -1,4 +1,4 @@
-use crate::ast::{Data, Decl, Meta, Module, Name, Property, Type};
+use crate::ast::{Data, Decl, Meta, Method, Module, Name, Parameter, Property, Service, Type};
 use crate::error::syntax;
 use crate::parse::lexer::LexResult;
 use crate::parse::token::Token;
@@ -47,7 +47,7 @@ where
                 Err(error) => {
                     self.errors
                         .push(syntax::Error::ParseError(syntax::Module::Decl(error)));
-                    //self.recover();
+                    self.recover();
                 }
             }
         }
@@ -65,13 +65,17 @@ where
     }
 
     fn parse_decl(&mut self) -> Result<Option<Decl>, syntax::Decl> {
-        //let comment = self.parse_doc_comment();
+        let comment = self.parse_comment().map_err(syntax::Decl::BadComment)?;
         //let annotations = self.parse_annotations()?;
         match self.advance() {
             None => Ok(None),
-            Some(Ok((_, Token::Data))) => {
-                self.parse_data(None, vec![]).map(|x| Some(Decl::Data(x)))
-            }
+            Some(Ok((_, Token::Data))) => self
+                .parse_data(comment, vec![])
+                .map(|x| Some(Decl::Data(x))),
+            Some(Ok((_, Token::Service))) => self
+                .parse_service(comment, vec![])
+                .map(|x| Some(Decl::Service(x)))
+                .map_err(syntax::Decl::BadService),
             Some(Ok((region, _))) => Err(syntax::Decl::Start(region.start.line, region.start.col)),
             Some(Err(_)) => Err(syntax::Decl::Start(0, 0)),
             //Some((_, Token::Enum)) => self
@@ -88,6 +92,85 @@ where
         }
     }
 
+    fn recover(&mut self) {
+        while !matches!(
+            self.peek(),
+            Some(Token::Data) | Some(Token::Service) | Some(Token::Enum) | Some(Token::Eof) | None
+        ) {
+            self.advance();
+        }
+    }
+
+    fn parse_service(
+        &mut self,
+        comment: Option<String>,
+        annotations: Vec<Meta>,
+    ) -> Result<Service, syntax::Service> {
+        let name = self.expect_name().map_err(syntax::Service::BadName)?;
+        self.expect_token(Token::LBrace)
+            .map_err(|pos| syntax::Service::Start(pos.line, pos.col))?;
+
+        let methods = self.parse_methods().map_err(syntax::Service::BadMethod)?;
+        self.expect_token(Token::RBrace)
+            .map_err(|pos| syntax::Service::MissingEnd(pos.line, pos.col))?;
+
+        Ok(Service {
+            annotations,
+            doc_comment: comment,
+            name,
+            methods,
+        })
+    }
+
+    fn parse_methods(&mut self) -> Result<Vec<Method>, syntax::Method> {
+        let mut methods = vec![];
+        while !matches!(self.peek(), Some(Token::RBrace) | Some(Token::Eof) | None) {
+            println!("{:?}", self.peek());
+            self.parse_method(&mut methods)?;
+        }
+
+        Ok(methods)
+    }
+
+    fn parse_method(&mut self, methods: &mut Vec<Method>) -> Result<(), syntax::Method> {
+        let comment = self.parse_comment().map_err(syntax::Method::BadComment)?;
+        // parse annotations
+        self.expect_token(Token::Def)
+            .map_err(|pos| syntax::Method::MissingDef(pos.line, pos.col))?;
+        let name = self.expect_name().map_err(syntax::Method::BadName)?;
+        self.expect_token(Token::LParen)
+            .map_err(|pos| syntax::Method::MissingParamStart(name.clone(), pos.line, pos.col))?;
+        let properties = self.parse_properties().map_err(syntax::Method::BadParam)?;
+
+        self.expect_token(Token::RParen)
+            .map_err(|pos| syntax::Method::MissingParamEnd(name.clone(), pos.line, pos.col))?;
+
+        let return_type = if self.matches(Token::Colon) {
+            Some(self.parse_type().map_err(syntax::Method::BadReturnType)?)
+        } else {
+            None
+        };
+
+        let method = Method {
+            name,
+            parameters: properties
+                .iter()
+                .map(|prop| Parameter {
+                    name: prop.name.clone(),
+                    annotations: prop.annotations.clone(),
+                    type_: prop.type_.clone(),
+                })
+                .collect(),
+            annotations: vec![],
+            return_type,
+            doc_comment: comment,
+        };
+
+        methods.push(method);
+
+        Ok(())
+    }
+
     fn parse_data(
         &mut self,
         comment: Option<String>,
@@ -96,7 +179,8 @@ where
         let name = self.expect_name().map_err(syntax::Decl::DataName)?;
         let mut properties = vec![];
         if self.matches(Token::LBrace) {
-            let mut parsed_properties = self.parse_properties().map_err(syntax::Decl::Property)?;
+            let mut parsed_properties =
+                self.parse_properties().map_err(syntax::Decl::BadProperty)?;
             properties.append(&mut parsed_properties);
             self.expect_token(Token::RBrace)
                 .map_err(|pos| syntax::Decl::End(pos.line, pos.col))?;
@@ -112,25 +196,61 @@ where
 
     fn parse_properties(&mut self) -> Result<Vec<Property>, syntax::Property> {
         let mut properties = vec![];
-        while !matches!(self.peek(), Some(Token::RBrace) | Some(Token::Eof) | None) {
-            // parse comments or annotations
-            if matches!(self.peek(), Some(Token::Identifier(_))) {
-                let name = self.expect_name().map_err(syntax::Property::BadName)?;
-                self.expect_token(Token::Colon)
-                    .map_err(|pos| syntax::Property::MissingColon(pos.line, pos.col))?;
-                let type_ = self.parse_type().map_err(syntax::Property::BadType)?;
-                let property = Property {
-                    name,
-                    type_,
-                    annotations: vec![],
-                    doc_comment: None,
-                };
-                properties.push(property);
-            }
+        while !matches!(
+            self.peek(),
+            Some(Token::RBrace) | Some(Token::Eof) | None | Some(Token::RParen)
+        ) {
+            self.parse_property(&mut properties)?;
             self.matches(Token::Comma);
         }
 
         Ok(properties)
+    }
+
+    fn parse_property(&mut self, properties: &mut Vec<Property>) -> Result<(), syntax::Property> {
+        let comment = self.parse_comment().map_err(syntax::Property::BadComment)?;
+        // parse annotations
+        if matches!(self.peek(), Some(Token::Identifier(_))) {
+            let name = self.expect_name().map_err(syntax::Property::BadName)?;
+            self.expect_token(Token::Colon)
+                .map_err(|pos| syntax::Property::MissingColon(name.clone(), pos.line, pos.col))?;
+
+            let type_ = self
+                .parse_type()
+                .map_err(|error| syntax::Property::BadType(name.clone(), error))?;
+
+            let property = Property {
+                name,
+                type_,
+                annotations: vec![],
+                doc_comment: comment,
+            };
+            properties.push(property);
+        }
+
+        Ok(())
+    }
+
+    fn parse_comment(&mut self) -> Result<Option<String>, syntax::Token> {
+        let mut lines = vec![];
+        while matches!(self.peek(), Some(Token::Comment(_))) {
+            if let Some(Ok((_, Token::Comment(comment)))) = self.advance() {
+                lines.push(comment);
+            }
+        }
+
+        let comment = lines
+            .iter()
+            .map(|line| line.trim())
+            .filter(|line| line.len() > 0)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        if comment.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(comment))
     }
 
     fn parse_type(&mut self) -> Result<Type, syntax::Type> {
