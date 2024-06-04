@@ -22,20 +22,25 @@ pub enum Module {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Decl {
-    DataName(Name),
-    Start(Line, Col),
-    MissingPropertySeparator(Region),
+    BadStart(Line, Col),
+    BadData(Data),
+    BadService(Service),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum Data {
+    BadName(Name),
     BadComment(Token),
     BadProperty(Property),
-    End(usize, usize),
-    BadService(Service),
+    MissingStart(Line, Col),
+    MissingEnd(usize, usize),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Service {
     BadName(Name),
     BadMethod(Method),
-    Start(Line, Col),
+    MissingStart(Line, Col),
     MissingEnd(usize, usize),
 }
 
@@ -146,53 +151,69 @@ impl Module {
 impl Decl {
     pub fn to_report<'a>(&self, alloc: &'a WrpcDocBuilder) -> Report<'a> {
         match self {
-            Decl::BadComment(_) => Report { title: "COMMENT SYNTAX".to_owned(), doc: alloc.stack([alloc.reflow("Test"), alloc.reflow("Mehr Test")]) },
-            Decl::End(line, col) => Report {
-                title: "UNEXPECTED END OF DATA DECLARATION".to_owned(),
-                 doc: alloc.stack([
-                    alloc.reflow("I tried to parse a `data` declaration but missed an ending curly brace."),
-                    alloc.snippet(&Region::from_position(&Position { line: *line, col: *col }, &Position { line: *line, col: *col }))
-                ])
+            Decl::BadStart(line, col) => Report {
+                title: "DECL START".to_owned(),
+                doc: alloc.stack([alloc.reflow("I tried to parse ")]),
             },
-            Decl::Start(line, col) => Report {
-                title: "DATA DECLARATION".to_owned(),
-                 doc: alloc.stack([
-                     alloc.reflow("I tried to read a data declaration"),
-                     alloc.snippet(&Region::new(*line, *col, *line, *col))
-                 ])
-                },
-            Decl::DataName(Name::BadToken(_)) => Report {
-                title: "DATA DECLARATION".to_owned(),
-                 doc: alloc.stack([alloc.reflow("Test")])
-                },
-
-            Decl::DataName(Name::ExpectedName(_, _)) => Report {
-                title: "DATA DECLARATION".to_owned(),
-                 doc: alloc.stack([alloc.reflow("Test")])
-                },
-            Decl::BadProperty(Property::MissingComma(_)) => Report {
-                title: "MISSING PROPERTY NAME".to_string(),
-                //region: region.clone(),
+            Decl::BadData(Data::BadComment(_)) => Report {
+                title: "COMMENT SYNTAX".to_owned(),
+                doc: alloc.stack([alloc.reflow("Test"), alloc.reflow("Mehr Test")]),
+            },
+            Decl::BadData(Data::MissingEnd(line, col)) => Report {
+                title: "UNEXPECTED END OF DATA DECLARATION".to_owned(),
                 doc: alloc.stack([
-                    alloc.reflow("I am missing a comma in a ")
+                    alloc.reflow(
+                        "I tried to parse a `data` declaration but missed an ending curly brace.",
+                    ),
+                    alloc.snippet(&Region::from_position(
+                        &Position {
+                            line: *line,
+                            col: *col,
+                        },
+                        &Position {
+                            line: *line,
+                            col: *col,
+                        },
+                    )),
                 ]),
             },
-            Decl::MissingPropertySeparator(region) => Report {
-                title: "MISSING PROPERTY SEPARATOR".to_string(),
+            Decl::BadData(Data::MissingStart(line, col)) => Report {
+                title: "DATA DECLARATION".to_owned(),
                 doc: alloc.stack([
-                    alloc.reflow("I missed a separator between two properties."),
-                    alloc.snippet(region),
-                    alloc.reflow("Properties can be declared in the form of `name: Type,`. Please add a comma.")
-                ])
+                    alloc.reflow("I tried to read a data declaration"),
+                    alloc.snippet(&Region::new(*line, *col, *line, *col)),
+                ]),
             },
-            Decl::BadProperty(Property::MissingColon(_name, line, col)) => Report {
+            Decl::BadData(Data::BadName(Name::BadToken(_))) => Report {
+                title: "DATA DECLARATION".to_owned(),
+                doc: alloc.stack([alloc.reflow("Test")]),
+            },
+
+            Decl::BadData(Data::BadName(Name::ExpectedName(_, _))) => Report {
+                title: "DATA DECLARATION".to_owned(),
+                doc: alloc.stack([alloc.reflow("Test")]),
+            },
+            Decl::BadData(Data::BadProperty(Property::MissingComma(_))) => Report {
+                title: "MISSING PROPERTY NAME".to_string(),
+                //region: region.clone(),
+                doc: alloc.stack([alloc.reflow("I am missing a comma in a ")]),
+            },
+            //Decl::MissingPropertySeparator(region) => Report {
+            //    title: "MISSING PROPERTY SEPARATOR".to_string(),
+            //    doc: alloc.stack([
+            //        alloc.reflow("I missed a separator between two properties."),
+            //        alloc.snippet(region),
+            //        alloc.reflow("Properties can be declared in the form of `name: Type,`. Please add a comma.")
+            //    ])
+            //},
+            Decl::BadData(Data::BadProperty(Property::MissingColon(_name, line, col))) => Report {
                 title: "MISSING PROPERTY NAME AND TYPE SEPARATOR".to_string(),
                 doc: alloc.stack([
                     alloc.reflow(format!("I found a property with the name `{}`", "Test")),
                     alloc.snippet(&Region::line(*line, *col, *col)),
-                ])
+                ]),
             },
-            Decl::BadProperty(Property::MissingType(region)) => Report {
+            Decl::BadData(Data::BadProperty(Property::MissingType(region))) => Report {
                 title: "MISSING PROPERTY TYPE".to_string(),
                 doc: alloc.stack([
                     alloc.reflow(format!(
@@ -201,12 +222,17 @@ impl Decl {
                         "Test",
                     )),
                     alloc.snippet(region),
-                ])
+                ]),
             },
-            Decl::BadService(_) => Report { title: "BAD SERVICE DECLARATION".to_owned(), doc: alloc.stack([alloc.reflow("TEST SERVICE")]) },
-            Decl::BadProperty(Property::BadName(_)) => Report { title: "BAD PROPERTY NAME".to_owned(), doc: alloc.stack([alloc.reflow("TEST")]) },
-            Decl::BadProperty(Property::BadType(_, _)) => Report { title: "BAD PROPERTY TYPE".to_owned(), doc: alloc.stack([alloc.reflow("TEST")]) },
-            Decl::BadProperty(Property::BadComment(_)) => Report { title: "BAD PROPERTY COMMENT".to_owned(), doc: alloc.stack([alloc.reflow("TEST")]) },
+            Decl::BadData(_) => Report {
+                title: "BAD DATA DECLARATION".to_string(),
+                //region: region.clone(),
+                doc: alloc.stack([alloc.reflow("I am missing a comma in a ")]),
+            },
+            Decl::BadService(_) => Report {
+                title: "BAD SERVICE DECLARATION".to_owned(),
+                doc: alloc.stack([alloc.reflow("TEST SERVICE")]),
+            },
         }
     }
 }

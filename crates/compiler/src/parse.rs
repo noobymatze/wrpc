@@ -65,19 +65,24 @@ where
     }
 
     fn parse_decl(&mut self) -> Result<Option<Decl>, syntax::Decl> {
-        let comment = self.parse_comment().map_err(syntax::Decl::BadComment)?;
+        let comment = self
+            .parse_comment()
+            .map_err(|error| syntax::Decl::BadData(syntax::Data::BadComment(error)))?;
         //let annotations = self.parse_annotations()?;
         match self.advance() {
             None => Ok(None),
             Some(Ok((_, Token::Data))) => self
                 .parse_data(comment, vec![])
-                .map(|x| Some(Decl::Data(x))),
+                .map(|x| Some(Decl::Data(x)))
+                .map_err(syntax::Decl::BadData),
             Some(Ok((_, Token::Service))) => self
                 .parse_service(comment, vec![])
                 .map(|x| Some(Decl::Service(x)))
                 .map_err(syntax::Decl::BadService),
-            Some(Ok((region, _))) => Err(syntax::Decl::Start(region.start.line, region.start.col)),
-            Some(Err(_)) => Err(syntax::Decl::Start(0, 0)),
+            Some(Ok((region, _))) => {
+                Err(syntax::Decl::BadStart(region.start.line, region.start.col))
+            }
+            Some(Err(_)) => Err(syntax::Decl::BadStart(0, 0)),
             //Some((_, Token::Enum)) => self
             //    .parse_enum(comment, annotations)
             //    .map(|x| Some(Decl::Enum(x))),
@@ -108,7 +113,7 @@ where
     ) -> Result<Service, syntax::Service> {
         let name = self.expect_name().map_err(syntax::Service::BadName)?;
         self.expect_token(Token::LBrace)
-            .map_err(|pos| syntax::Service::Start(pos.line, pos.col))?;
+            .map_err(|pos| syntax::Service::MissingStart(pos.line, pos.col))?;
 
         let methods = self.parse_methods().map_err(syntax::Service::BadMethod)?;
         self.expect_token(Token::RBrace)
@@ -125,7 +130,6 @@ where
     fn parse_methods(&mut self) -> Result<Vec<Method>, syntax::Method> {
         let mut methods = vec![];
         while !matches!(self.peek(), Some(Token::RBrace) | Some(Token::Eof) | None) {
-            println!("{:?}", self.peek());
             self.parse_method(&mut methods)?;
         }
 
@@ -175,15 +179,15 @@ where
         &mut self,
         comment: Option<String>,
         annotations: Vec<Meta>,
-    ) -> Result<Data, syntax::Decl> {
-        let name = self.expect_name().map_err(syntax::Decl::DataName)?;
+    ) -> Result<Data, syntax::Data> {
+        let name = self.expect_name().map_err(syntax::Data::BadName)?;
         let mut properties = vec![];
         if self.matches(Token::LBrace) {
             let mut parsed_properties =
-                self.parse_properties().map_err(syntax::Decl::BadProperty)?;
+                self.parse_properties().map_err(syntax::Data::BadProperty)?;
             properties.append(&mut parsed_properties);
             self.expect_token(Token::RBrace)
-                .map_err(|pos| syntax::Decl::End(pos.line, pos.col))?;
+                .map_err(|pos| syntax::Data::MissingEnd(pos.line, pos.col))?;
         }
 
         Ok(Data {
@@ -210,7 +214,14 @@ where
     fn parse_property(&mut self, properties: &mut Vec<Property>) -> Result<(), syntax::Property> {
         let comment = self.parse_comment().map_err(syntax::Property::BadComment)?;
         // parse annotations
-        if matches!(self.peek(), Some(Token::Identifier(_))) {
+        if matches!(
+            self.peek(),
+            Some(Token::Identifier(_))
+                | Some(Token::Service)
+                | Some(Token::Data)
+                | Some(Token::Def)
+                | Some(Token::Enum)
+        ) {
             let name = self.expect_name().map_err(syntax::Property::BadName)?;
             self.expect_token(Token::Colon)
                 .map_err(|pos| syntax::Property::MissingColon(name.clone(), pos.line, pos.col))?;
