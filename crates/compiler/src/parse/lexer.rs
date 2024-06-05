@@ -73,6 +73,7 @@ impl<T: Iterator<Item = char>> Lexer<T> {
                 // Don't need to do anything here.
             }
             //c if c.is_ascii_digit() => self.consume_number(c)?,
+            '_' => self.consume_identifier('_')?,
             c if c.is_alphabetic() => self.consume_identifier(c)?,
             c => return Err(error::Token::BadChar(self.line, self.col - 1, c)),
         }

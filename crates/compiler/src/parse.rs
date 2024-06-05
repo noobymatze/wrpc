@@ -200,28 +200,33 @@ where
 
     fn parse_properties(&mut self) -> Result<Vec<Property>, syntax::Property> {
         let mut properties = vec![];
-        while !matches!(
-            self.peek(),
-            Some(Token::RBrace) | Some(Token::Eof) | None | Some(Token::RParen)
-        ) {
+        while self.matches_property_start() {
             self.parse_property(&mut properties)?;
-            self.matches(Token::Comma);
+            if !matches!(self.peek(), Some(Token::RBrace) | Some(Token::RParen)) {
+                self.expect_token(Token::Comma)
+                    .map_err(|pos| syntax::Property::MissingComma(pos.line, pos.col))?;
+            }
         }
 
         Ok(properties)
     }
 
-    fn parse_property(&mut self, properties: &mut Vec<Property>) -> Result<(), syntax::Property> {
-        let comment = self.parse_comment().map_err(syntax::Property::BadComment)?;
-        // parse annotations
-        if matches!(
+    fn matches_property_start(&mut self) -> bool {
+        matches!(
             self.peek(),
             Some(Token::Identifier(_))
+                | Some(Token::Comment(_))
                 | Some(Token::Service)
                 | Some(Token::Data)
                 | Some(Token::Def)
                 | Some(Token::Enum)
-        ) {
+        )
+    }
+
+    fn parse_property(&mut self, properties: &mut Vec<Property>) -> Result<(), syntax::Property> {
+        let comment = self.parse_comment().map_err(syntax::Property::BadComment)?;
+        // parse annotations
+        if self.matches_property_start() {
             let name = self.expect_name().map_err(syntax::Property::BadName)?;
             self.expect_token(Token::Colon)
                 .map_err(|pos| syntax::Property::MissingColon(name.clone(), pos.line, pos.col))?;
@@ -244,24 +249,16 @@ where
 
     fn parse_comment(&mut self) -> Result<Option<String>, syntax::Token> {
         let mut lines = vec![];
-        while matches!(self.peek(), Some(Token::Comment(_))) {
-            if let Some(Ok((_, Token::Comment(comment)))) = self.advance() {
-                lines.push(comment);
-            }
+        while let Some(Token::Comment(comment)) = self.peek() {
+            lines.push(comment.trim().to_string());
+            self.advance();
         }
 
-        let comment = lines
-            .iter()
-            .map(|line| line.trim())
-            .filter(|line| line.len() > 0)
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        if comment.is_empty() {
-            return Ok(None);
+        if lines.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(lines.join("\n")))
         }
-
-        Ok(Some(comment))
     }
 
     fn parse_type(&mut self) -> Result<Type, syntax::Type> {
@@ -342,7 +339,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::parse;
+    use super::*;
 
     #[test]
     fn test_data_decl_without_braces_is_ok() {
@@ -360,5 +357,328 @@ mod tests {
     fn test_data_decl_with_ending_brace_is_ok() {
         let result = parse(None, "data Test {}");
         assert!(result.is_ok())
+    }
+
+    // Helper function to create a lexer from a source string
+    fn create_lexer(source: &str) -> impl Iterator<Item = LexResult> + '_ {
+        lexer::lexer(source)
+    }
+
+    #[test]
+    fn test_parse_empty_module() {
+        let source = "";
+        let lexer = create_lexer(source);
+        let mut parser = Parser::new(lexer);
+        let result = parser.parse_module();
+
+        assert!(result.is_ok());
+        let module = result.unwrap();
+        assert!(module.declarations.is_empty());
+    }
+
+    #[test]
+    fn test_parse_data_declaration() {
+        let source = r#"
+            // Hallo Welt!
+            data Greet {
+                // Test
+                // Multiline Test
+                name: String,
+                // Multiline Test
+                test: Boolean,
+            }
+            "#;
+        let lexer = create_lexer(source);
+        let mut parser = Parser::new(lexer);
+        let result = parser.parse_module();
+
+        assert!(result.is_ok());
+        let module = result.unwrap();
+        assert_eq!(module.declarations.len(), 1);
+        match &module.declarations[0] {
+            Decl::Data(data) => {
+                assert_eq!(data.name.value, "Greet");
+                assert_eq!(data.properties.len(), 2);
+                assert_eq!(data.properties[0].name.value, "name");
+                assert_eq!(data.properties[0].type_.name.value, "String");
+                assert_eq!(data.properties[1].name.value, "test");
+                assert_eq!(data.properties[1].type_.name.value, "Boolean");
+            }
+            _ => panic!("Expected data declaration"),
+        }
+    }
+
+    #[test]
+    fn test_parse_service_declaration() {
+        let source = r#"
+            service Foo {
+                def foo(name: String): Greet
+            }
+            "#;
+        let lexer = create_lexer(source);
+        let mut parser = Parser::new(lexer);
+        let result = parser.parse_module();
+
+        assert!(result.is_ok());
+        let module = result.unwrap();
+        assert_eq!(module.declarations.len(), 1);
+        match &module.declarations[0] {
+            Decl::Service(service) => {
+                assert_eq!(service.name.value, "Foo");
+                assert_eq!(service.methods.len(), 1);
+                assert_eq!(service.methods[0].name.value, "foo");
+                assert_eq!(service.methods[0].parameters.len(), 1);
+                assert_eq!(service.methods[0].parameters[0].name.value, "name");
+                assert_eq!(service.methods[0].parameters[0].type_.name.value, "String");
+                assert!(service.methods[0].return_type.is_some());
+                assert_eq!(
+                    service.methods[0].return_type.as_ref().unwrap().name.value,
+                    "Greet"
+                );
+            }
+            _ => panic!("Expected service declaration"),
+        }
+    }
+
+    #[test]
+    fn test_parse_module_with_comments() {
+        let source = r#"
+            // This is a comment
+            data TestData {
+                field1: String,
+                field2: Integer,
+            }
+
+            // Another comment
+            service TestService {
+                def testMethod(param: String): TestData
+            }
+            "#;
+        let lexer = create_lexer(source);
+        let mut parser = Parser::new(lexer);
+        let result = parser.parse_module();
+
+        assert!(result.is_ok());
+        let module = result.unwrap();
+        assert_eq!(module.declarations.len(), 2);
+
+        match &module.declarations[0] {
+            Decl::Data(data) => {
+                assert_eq!(data.name.value, "TestData");
+                assert_eq!(data.properties.len(), 2);
+                assert_eq!(data.properties[0].name.value, "field1");
+                assert_eq!(data.properties[0].type_.name.value, "String");
+                assert_eq!(data.properties[1].name.value, "field2");
+                assert_eq!(data.properties[1].type_.name.value, "Integer");
+            }
+            _ => panic!("Expected data declaration"),
+        }
+
+        match &module.declarations[1] {
+            Decl::Service(service) => {
+                assert_eq!(service.name.value, "TestService");
+                assert_eq!(service.methods.len(), 1);
+                assert_eq!(service.methods[0].name.value, "testMethod");
+                assert_eq!(service.methods[0].parameters.len(), 1);
+                assert_eq!(service.methods[0].parameters[0].name.value, "param");
+                assert_eq!(service.methods[0].parameters[0].type_.name.value, "String");
+                assert!(service.methods[0].return_type.is_some());
+                assert_eq!(
+                    service.methods[0].return_type.as_ref().unwrap().name.value,
+                    "TestData"
+                );
+            }
+            _ => panic!("Expected service declaration"),
+        }
+    }
+
+    #[test]
+    fn test_parse_module_with_syntax_errors() {
+        let source = r#"
+            data IncorrectData {
+                name: String
+                test: Boolean, // Missing comma between fields
+            }
+
+            service IncorrectService {
+                def incorrectMethod(param String) // Missing colon before type
+            }
+            "#;
+        let lexer = create_lexer(source);
+        let mut parser = Parser::new(lexer);
+        let result = parser.parse_module();
+
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    fn test_empty_data_block() {
+        let source = r#"
+           data EmptyData {}
+           "#;
+        let lexer = create_lexer(source);
+        let mut parser = Parser::new(lexer);
+        let result = parser.parse_module();
+
+        assert!(result.is_ok());
+        let module = result.unwrap();
+        assert_eq!(module.declarations.len(), 1);
+        match &module.declarations[0] {
+            Decl::Data(data) => {
+                assert_eq!(data.name.value, "EmptyData");
+                assert!(data.properties.is_empty());
+            }
+            _ => panic!("Expected data declaration"),
+        }
+    }
+
+    #[test]
+    fn test_empty_service_block() {
+        let source = r#"
+           service EmptyService {}
+           "#;
+        let lexer = create_lexer(source);
+        let mut parser = Parser::new(lexer);
+        let result = parser.parse_module();
+
+        assert!(result.is_ok());
+        let module = result.unwrap();
+        assert_eq!(module.declarations.len(), 1);
+        match &module.declarations[0] {
+            Decl::Service(service) => {
+                assert_eq!(service.name.value, "EmptyService");
+                assert!(service.methods.is_empty());
+            }
+            _ => panic!("Expected service declaration"),
+        }
+    }
+
+    #[test]
+    fn test_malformed_input_missing_braces() {
+        let source = r#"
+           data MissingBraces
+               name: String,
+               test: Boolean,
+           "#;
+        let lexer = create_lexer(source);
+        let mut parser = Parser::new(lexer);
+        let result = parser.parse_module();
+
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(!errors.is_empty());
+    }
+
+    #[test]
+    fn test_comments_only() {
+        let source = r#"
+           // This is a comment
+           // Another comment
+           "#;
+        let lexer = create_lexer(source);
+        let mut parser = Parser::new(lexer);
+        let result = parser.parse_module();
+
+        assert!(result.is_ok());
+        let module = result.unwrap();
+        assert!(module.declarations.is_empty());
+    }
+
+    #[test]
+    fn test_unusual_identifiers() {
+        let source = r#"
+           data Data123 {
+               _fieldName: String,
+               field_with_number1: Integer,
+           }
+           "#;
+        let lexer = create_lexer(source);
+        let mut parser = Parser::new(lexer);
+        let result = parser.parse_module();
+
+        assert!(result.is_ok());
+        let module = result.unwrap();
+        assert_eq!(module.declarations.len(), 1);
+        match &module.declarations[0] {
+            Decl::Data(data) => {
+                assert_eq!(data.name.value, "Data123");
+                assert_eq!(data.properties.len(), 2);
+                assert_eq!(data.properties[0].name.value, "_fieldName");
+                assert_eq!(data.properties[0].type_.name.value, "String");
+                assert_eq!(data.properties[1].name.value, "field_with_number1");
+                assert_eq!(data.properties[1].type_.name.value, "Integer");
+            }
+            _ => panic!("Expected data declaration"),
+        }
+    }
+
+    #[test]
+    fn test_whitespace_variations() {
+        let source = r#"
+           data TestData      {
+               name   :     String ,
+               test : Boolean ,
+           }
+
+           service TestService
+           {
+               def foo( name   :  String   ) : Greet
+           }
+           "#;
+        let lexer = create_lexer(source);
+        let mut parser = Parser::new(lexer);
+        let result = parser.parse_module();
+
+        assert!(result.is_ok());
+        let module = result.unwrap();
+        assert_eq!(module.declarations.len(), 2);
+
+        match &module.declarations[0] {
+            Decl::Data(data) => {
+                assert_eq!(data.name.value, "TestData");
+                assert_eq!(data.properties.len(), 2);
+                assert_eq!(data.properties[0].name.value, "name");
+                assert_eq!(data.properties[0].type_.name.value, "String");
+                assert_eq!(data.properties[1].name.value, "test");
+                assert_eq!(data.properties[1].type_.name.value, "Boolean");
+            }
+            _ => panic!("Expected data declaration"),
+        }
+
+        match &module.declarations[1] {
+            Decl::Service(service) => {
+                assert_eq!(service.name.value, "TestService");
+                assert_eq!(service.methods.len(), 1);
+                assert_eq!(service.methods[0].name.value, "foo");
+                assert_eq!(service.methods[0].parameters.len(), 1);
+                assert_eq!(service.methods[0].parameters[0].name.value, "name");
+                assert_eq!(service.methods[0].parameters[0].type_.name.value, "String");
+                assert!(service.methods[0].return_type.is_some());
+                assert_eq!(
+                    service.methods[0].return_type.as_ref().unwrap().name.value,
+                    "Greet"
+                );
+            }
+            _ => panic!("Expected service declaration"),
+        }
+
+        #[test]
+        fn test_unexpected_tokens() {
+            let source = r#"
+           data TestData {
+               name: String,
+               123invalid: Boolean,
+           }
+           "#;
+            let lexer = create_lexer(source);
+            let mut parser = Parser::new(lexer);
+            let result = parser.parse_module();
+
+            assert!(result.is_err());
+            let errors = result.unwrap_err();
+            assert!(!errors.is_empty());
+        }
     }
 }

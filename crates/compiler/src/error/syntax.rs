@@ -65,7 +65,7 @@ pub enum Property {
     BadName(Name),
     BadType(ast::Name, Type),
     BadComment(Token),
-    MissingComma(Region),
+    MissingComma(Line, Col),
     MissingType(Region),
     MissingColon(ast::Name, Line, Col),
 }
@@ -193,7 +193,7 @@ impl Decl {
                 title: "DATA DECLARATION".to_owned(),
                 doc: alloc.stack([alloc.reflow("Test")]),
             },
-            Decl::BadData(Data::BadProperty(Property::MissingComma(_))) => Report {
+            Decl::BadData(Data::BadProperty(Property::MissingComma(_, _))) => Report {
                 title: "MISSING PROPERTY NAME".to_string(),
                 //region: region.clone(),
                 doc: alloc.stack([alloc.reflow("I am missing a comma in a ")]),
