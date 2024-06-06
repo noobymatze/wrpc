@@ -1,4 +1,6 @@
-use crate::ast::{Data, Decl, Meta, Method, Module, Name, Parameter, Property, Service, Type};
+use crate::ast::{
+    Data, Decl, Enum, Meta, Method, Module, Name, Parameter, Property, Service, Type, Variant,
+};
 use crate::error::syntax;
 use crate::parse::lexer::LexResult;
 use crate::parse::token::Token;
@@ -79,6 +81,10 @@ where
                 .parse_service(comment, vec![])
                 .map(|x| Some(Decl::Service(x)))
                 .map_err(syntax::Decl::BadService),
+            Some(Ok((_, Token::Enum))) => self
+                .parse_enum(comment, vec![])
+                .map(|x| Some(Decl::Enum(x)))
+                .map_err(syntax::Decl::BadEnum),
             Some(Ok((region, _))) => {
                 Err(syntax::Decl::BadStart(region.start.line, region.start.col))
             }
@@ -104,6 +110,65 @@ where
         ) {
             self.advance();
         }
+    }
+
+    fn parse_enum(
+        &mut self,
+        comment: Option<String>,
+        annotations: Vec<Meta>,
+    ) -> Result<Enum, syntax::Enum> {
+        let name = self.expect_name().map_err(syntax::Enum::BadName)?;
+        self.expect_token(Token::LBrace)
+            .map_err(|pos| syntax::Enum::MissingStart(pos.line, pos.col))?;
+
+        let variants = self.parse_variants().map_err(syntax::Enum::BadVariant)?;
+        self.expect_token(Token::RBrace)
+            .map_err(|pos| syntax::Enum::MissingEnd(pos.line, pos.col))?;
+
+        Ok(Enum {
+            annotations,
+            doc_comment: comment,
+            name,
+            variants,
+        })
+    }
+
+    fn parse_variants(&mut self) -> Result<Vec<Variant>, syntax::Variant> {
+        let mut variants = vec![];
+        while !matches!(self.peek(), Some(Token::RBrace) | Some(Token::Eof) | None) {
+            self.parse_variant(&mut variants)?;
+            if !matches!(self.peek(), Some(Token::RBrace)) {
+                self.expect_token(Token::Comma)
+                    .map_err(|pos| syntax::Variant::MissingComma(pos.line, pos.col))?;
+            }
+        }
+
+        Ok(variants)
+    }
+
+    fn parse_variant(&mut self, variants: &mut Vec<Variant>) -> Result<(), syntax::Variant> {
+        let comment = self.parse_comment().map_err(syntax::Variant::BadComment)?;
+        // parse annotations
+        let name = self.expect_name().map_err(syntax::Variant::BadName)?;
+        self.expect_token(Token::LBrace)
+            .map_err(|pos| syntax::Variant::MissingParamStart(name.clone(), pos.line, pos.col))?;
+        let properties = self
+            .parse_properties()
+            .map_err(syntax::Variant::BadProperty)?;
+
+        self.expect_token(Token::RBrace)
+            .map_err(|pos| syntax::Variant::MissingParamEnd(name.clone(), pos.line, pos.col))?;
+
+        let variant = Variant {
+            name,
+            properties,
+            annotations: vec![],
+            doc_comment: comment,
+        };
+
+        variants.push(variant);
+
+        Ok(())
     }
 
     fn parse_service(
@@ -211,18 +276,6 @@ where
         Ok(properties)
     }
 
-    fn matches_property_start(&mut self) -> bool {
-        matches!(
-            self.peek(),
-            Some(Token::Identifier(_))
-                | Some(Token::Comment(_))
-                | Some(Token::Service)
-                | Some(Token::Data)
-                | Some(Token::Def)
-                | Some(Token::Enum)
-        )
-    }
-
     fn parse_property(&mut self, properties: &mut Vec<Property>) -> Result<(), syntax::Property> {
         let comment = self.parse_comment().map_err(syntax::Property::BadComment)?;
         // parse annotations
@@ -245,6 +298,18 @@ where
         }
 
         Ok(())
+    }
+
+    fn matches_property_start(&mut self) -> bool {
+        matches!(
+            self.peek(),
+            Some(Token::Identifier(_))
+                | Some(Token::Comment(_))
+                | Some(Token::Service)
+                | Some(Token::Data)
+                | Some(Token::Def)
+                | Some(Token::Enum)
+        )
     }
 
     fn parse_comment(&mut self) -> Result<Option<String>, syntax::Token> {
@@ -663,22 +728,22 @@ mod tests {
             }
             _ => panic!("Expected service declaration"),
         }
+    }
 
-        #[test]
-        fn test_unexpected_tokens() {
-            let source = r#"
-           data TestData {
-               name: String,
-               123invalid: Boolean,
-           }
-           "#;
-            let lexer = create_lexer(source);
-            let mut parser = Parser::new(lexer);
-            let result = parser.parse_module();
+    #[test]
+    fn test_unexpected_tokens() {
+        let source = r#"
+       data TestData {
+           name: String,
+           123invalid: Boolean,
+       }
+       "#;
+        let lexer = create_lexer(source);
+        let mut parser = Parser::new(lexer);
+        let result = parser.parse_module();
 
-            assert!(result.is_err());
-            let errors = result.unwrap_err();
-            assert!(!errors.is_empty());
-        }
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(!errors.is_empty());
     }
 }

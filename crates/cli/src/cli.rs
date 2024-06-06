@@ -48,18 +48,18 @@ pub fn run(cli: Cli) -> Result<(), Error> {
         Command::Check { file } => {
             let result = fs::read_to_string(&file)?;
             let str = result.as_str();
-            if let Err(wrpc::Error::BadSyntax(errors)) = compiler::parse(Some(file), str) {
-                render_errors(str, errors);
+            if let Err(wrpc::Error::BadSyntax(errors)) = compiler::parse(Some(file.clone()), str) {
+                render_errors(&file, str, errors);
             }
         }
         Command::Parse { file } => {
             let result = fs::read_to_string(&file)?;
             let str = result.as_str();
-            match compiler::parse(Some(file), str) {
+            match compiler::parse(Some(file.clone()), str) {
                 Ok(module) => println!("{module:?}"),
 
                 Err(wrpc::Error::BadSyntax(errors)) => {
-                    render_errors(str, errors);
+                    render_errors(&file, str, errors);
                 }
             }
         }
@@ -68,13 +68,19 @@ pub fn run(cli: Cli) -> Result<(), Error> {
     Ok(())
 }
 
-fn render_errors(str: &str, errors: Vec<syntax::Error>) {
+fn render_errors(filename: &PathBuf, str: &str, errors: Vec<syntax::Error>) {
     let alloc = WrpcDocBuilder::new(str);
     for error in errors {
         match error {
             wrpc::syntax::Error::ParseError(error) => {
                 let report = error.to_report(&alloc);
-                println!("{}", report.render(compiler::reporting::Target::Terminal));
+                println!(
+                    "\x1b[31m{}\x1b[0m",
+                    report.render(
+                        &Some(filename.clone()),
+                        compiler::reporting::Target::Terminal
+                    )
+                );
             }
         }
     }

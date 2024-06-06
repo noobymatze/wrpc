@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::ops::Deref;
+use std::path::PathBuf;
 
 use pretty::{BoxAllocator, BoxDoc, Pretty};
 use serde::ser::SerializeSeq;
@@ -94,16 +95,17 @@ pub enum Target {
 }
 
 impl<'a> Report<'a> {
-    pub fn render(&self, target: Target) -> String {
+    pub fn render(&self, filename: &Option<PathBuf>, target: Target) -> String {
+        let name = filename.as_ref().and_then(|x| x.as_os_str().to_str());
         match target {
             Target::_Text => format!(
                 "{}\n\n{}",
-                pretty_header(&self.title),
+                pretty_header(&self.title, name),
                 self.doc.deref().pretty(70)
             ),
             Target::Terminal => format!(
                 "{}\n\n{}",
-                pretty_header(&self.title),
+                pretty_header(&self.title, name),
                 self.doc.deref().pretty(70)
             ),
         }
@@ -136,6 +138,18 @@ impl<'a> WrpcDocBuilder<'a> {
         BoxDoc::intersperse(value, BoxDoc::softline())
     }
 
+    pub fn reflow_lines<I>(&self, text: I) -> WrpcDoc<'a>
+    where
+        I: IntoIterator,
+        I::Item: Into<Cow<'a, str>>,
+    {
+        let mut value = vec![];
+        for line in text.into_iter() {
+            value.push(self.reflow(line))
+        }
+        BoxDoc::intersperse(value, BoxDoc::softline())
+    }
+
     pub fn stack<I>(&self, docs: I) -> WrpcDoc<'a>
     where
         I: IntoIterator,
@@ -150,6 +164,10 @@ impl<'a> WrpcDocBuilder<'a> {
         I::Item: Pretty<'a, BoxAllocator, ()>,
     {
         BoxDoc::intersperse(docs, BoxDoc::line())
+    }
+
+    pub fn snippet_single(&self, line: Line, col: Col) -> WrpcDoc<'a> {
+        self.snippet(&Region::new(line, col, line, col))
     }
 
     pub fn snippet(&self, region: &Region) -> WrpcDoc<'a> {
@@ -169,8 +187,18 @@ impl<'a> WrpcDocBuilder<'a> {
 
 const HEADER_WIDTH: usize = 80;
 
-pub fn pretty_header(title: &str) -> String {
+pub fn pretty_header(title: &str, filename: Option<&str>) -> String {
     let title_width = title.len() + 4;
-    let header = format!("── {} {}", title, "─".repeat(HEADER_WIDTH - title_width));
+
+    let header = if let Some(filename) = filename {
+        format!(
+            "── {} {} {} ──",
+            title,
+            "─".repeat(HEADER_WIDTH - title_width - filename.len() - 2),
+            filename,
+        )
+    } else {
+        format!("── {} {}", title, "─".repeat(HEADER_WIDTH - title_width))
+    };
     header
 }

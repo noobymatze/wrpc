@@ -25,6 +25,7 @@ pub enum Decl {
     BadStart(Line, Col),
     BadData(Data),
     BadService(Service),
+    BadEnum(Enum),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -37,11 +38,31 @@ pub enum Data {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum Enum {
+    BadName(Name),
+    BadComment(Token),
+    BadVariant(Variant),
+    MissingStart(Line, Col),
+    MissingEnd(usize, usize),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Service {
     BadName(Name),
     BadMethod(Method),
     MissingStart(Line, Col),
     MissingEnd(usize, usize),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum Variant {
+    BadName(Name),
+    BadComment(Token),
+    BadProperty(Property),
+    BadReturnType(Type),
+    MissingComma(Line, Col),
+    MissingParamStart(ast::Name, Line, Col),
+    MissingParamEnd(ast::Name, Line, Col),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -153,7 +174,20 @@ impl Decl {
         match self {
             Decl::BadStart(line, col) => Report {
                 title: "DECL START".to_owned(),
-                doc: alloc.stack([alloc.reflow("I tried to parse ")]),
+                doc: alloc.stack([
+                    alloc.reflow("I tried to parse either a `Data`, `Service` or `Enum` declaration, but got stuck here:"),
+                    alloc.vcat([
+                        alloc.snippet_single(*line, *col),
+                        alloc.reflow_lines([
+                            "You can start a declaration with `data`, `service` or `enum` ",
+                            "respectively. Here is an example of how to define a data declaration:"
+                        ]),
+                    ]),
+                    alloc.text(r#">  // This is a doc comment in *markdown*
+>  data Foo {
+>      name: String,
+>  }"#)
+                ]),
             },
             Decl::BadData(Data::BadComment(_)) => Report {
                 title: "COMMENT SYNTAX".to_owned(),
@@ -232,6 +266,10 @@ impl Decl {
             Decl::BadService(_) => Report {
                 title: "BAD SERVICE DECLARATION".to_owned(),
                 doc: alloc.stack([alloc.reflow("TEST SERVICE")]),
+            },
+            Decl::BadEnum(_) => Report {
+                title: "BAD ENUM DECLARATION".to_owned(),
+                doc: alloc.stack([alloc.reflow("TEST ENUM")]),
             },
         }
     }
