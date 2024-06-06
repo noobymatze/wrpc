@@ -75,7 +75,7 @@ fn render_errors(filename: &PathBuf, str: &str, errors: Vec<syntax::Error>) {
             wrpc::syntax::Error::ParseError(error) => {
                 let report = error.to_report(&alloc);
                 println!(
-                    "\x1b[31m{}\x1b[0m",
+                    "\x1b[31m{}\x1b[0m\n",
                     report.render(
                         &Some(filename.clone()),
                         compiler::reporting::Target::Terminal

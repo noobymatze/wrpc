@@ -182,7 +182,7 @@ where
 
         let methods = self.parse_methods().map_err(syntax::Service::BadMethod)?;
         self.expect_token(Token::RBrace)
-            .map_err(|pos| syntax::Service::MissingEnd(pos.line, pos.col))?;
+            .map_err(|pos| syntax::Service::MissingEnd(name.clone(), pos.line, pos.col))?;
 
         Ok(Service {
             annotations,
@@ -252,7 +252,7 @@ where
                 self.parse_properties().map_err(syntax::Data::BadProperty)?;
             properties.append(&mut parsed_properties);
             self.expect_token(Token::RBrace)
-                .map_err(|pos| syntax::Data::MissingEnd(pos.line, pos.col))?;
+                .map_err(|pos| syntax::Data::MissingEnd(name.clone(), pos.line, pos.col))?;
         }
 
         Ok(Data {

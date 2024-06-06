@@ -34,7 +34,7 @@ pub enum Data {
     BadComment(Token),
     BadProperty(Property),
     MissingStart(Line, Col),
-    MissingEnd(usize, usize),
+    MissingEnd(ast::Name, usize, usize),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -51,7 +51,7 @@ pub enum Service {
     BadName(Name),
     BadMethod(Method),
     MissingStart(Line, Col),
-    MissingEnd(usize, usize),
+    MissingEnd(ast::Name, usize, usize),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -193,22 +193,17 @@ impl Decl {
                 title: "COMMENT SYNTAX".to_owned(),
                 doc: alloc.stack([alloc.reflow("Test"), alloc.reflow("Mehr Test")]),
             },
-            Decl::BadData(Data::MissingEnd(line, col)) => Report {
-                title: "UNEXPECTED END OF DATA DECLARATION".to_owned(),
+            Decl::BadData(Data::MissingEnd(name, line, col))
+            | Decl::BadService(Service::MissingEnd(name, line, col)) => Report {
+                title: "UNEXPECTED END OF DECLARATION".to_owned(),
                 doc: alloc.stack([
                     alloc.reflow(
-                        "I tried to parse a `data` declaration but missed an ending curly brace.",
+                        format!("I was just parsing the `{}` declaration, but missed a closing }}.", name.value),
                     ),
-                    alloc.snippet(&Region::from_position(
-                        &Position {
-                            line: *line,
-                            col: *col,
-                        },
-                        &Position {
-                            line: *line,
-                            col: *col,
-                        },
-                    )),
+                    alloc.vcat([
+                        alloc.snippet_single(*line, *col),
+                        alloc.reflow("Please add a closing }."),
+                    ])
                 ]),
             },
             Decl::BadData(Data::MissingStart(line, col)) => Report {
