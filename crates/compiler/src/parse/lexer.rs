@@ -2,8 +2,36 @@ use crate::error::syntax as error;
 use crate::parse::token::Token;
 use crate::reporting::Region;
 
+/// A [LexResult] represents the result of trying
+/// to lex a group of characters into a [Token].
 pub type LexResult = Result<(Region, Token), error::Token>;
 
+/// The current [Context] of the [Lexer].
+///
+/// See [Lexer] for more details on the meaning
+/// and necessity of this.
+#[derive(Debug)]
+enum Context {
+    /// Lexer should operate and tokenize normally.
+    Normal,
+    /// Lexer should operate and tokenize according to
+    /// a subset of [edn](https://github.com/edn-format/edn)
+    /// rules. The subset is defined by the implementation. ^^
+    Annotation(u32),
+}
+
+/// A [Lexer] groups a sequence of characters into [Token]s.
+///
+/// Since the wRPC language embeds [edn](https://github.com/edn-format/edn)
+/// for its annotation meta language and the rules for lexing
+/// are different in that context, the lexer switches the
+/// state to [Context::Edn] upon encountering a Hash `#`
+/// in [Context::Normal] mode.
+///
+/// By keeping track of the number of open parenthesis, we
+/// know when to exit [Context::Edn] mode. If the parenthesis
+/// are unbalanced, we have a problem, because currently the
+/// lexer has no way of being recovered.
 struct Lexer<T: Iterator<Item = char>> {
     input: T,
     pending: Vec<(Region, Token)>,
@@ -13,8 +41,21 @@ struct Lexer<T: Iterator<Item = char>> {
     col: usize,
     start_col: usize,
     ended: bool,
+    context: Context,
 }
 
+/// Returns a new [`Iterator`] for [`LexResult`]s.
+///
+/// It can be used to tokenize the given source string.
+///
+/// ## Example
+///
+/// Here is an example of how to use it.
+///
+/// ```ignore
+/// let result = lexer("data Person { name: String }").collect::<Vec<LexResult>>()
+/// println!("{:?}", result)
+/// ```
 pub fn lexer(input: &str) -> impl Iterator<Item = LexResult> + '_ {
     Lexer::new(input.chars())
 }
@@ -31,6 +72,7 @@ impl<T: Iterator<Item = char>> Lexer<T> {
             input,
             char0: None,
             ended: false,
+            context: Context::Normal,
         }
     }
 
@@ -60,21 +102,73 @@ impl<T: Iterator<Item = char>> Lexer<T> {
                 self.line += 1;
                 self.col = 1;
             }
-            '(' => self.emit(Token::LParen),
-            ')' => self.emit(Token::RParen),
             '{' => self.emit(Token::LBrace),
             '}' => self.emit(Token::RBrace),
             ',' => self.emit(Token::Comma),
-            ':' => self.emit(Token::Colon),
-            '/' => self.consume_comment()?,
-            // '"' => self.consume_string(c)?,
-            // ':' => self.consume_keyword(c)?,
+            '(' => {
+                self.emit(Token::LParen);
+                // Update the parens to catch when to switch
+                // back to normal mode.
+                self.context = match self.context {
+                    Context::Annotation(n) => Context::Annotation(n + 1),
+                    Context::Normal => Context::Normal,
+                };
+            }
+            ')' => {
+                self.emit(Token::RParen);
+                // If only the opening paren has been
+                self.context = match self.context {
+                    Context::Annotation(n) if n <= 1 => Context::Normal,
+                    Context::Annotation(n) => Context::Annotation(n - 1),
+                    Context::Normal => Context::Normal,
+                };
+            }
+            '=' => match self.context {
+                Context::Annotation(_) => self.consume_symbol(c)?,
+                Context::Normal => self.emit(Token::Equal),
+            },
+            '>' => match self.context {
+                Context::Annotation(_) => self.consume_symbol(c)?,
+                Context::Normal => self.emit(Token::RAngle),
+            },
+            '<' => match self.context {
+                Context::Annotation(_) => self.consume_symbol(c)?,
+                Context::Normal => self.emit(Token::LAngle),
+            },
+            ':' => match self.context {
+                Context::Normal => self.emit(Token::Colon),
+                Context::Annotation(_) => self.consume_keyword(c)?,
+            },
+            '/' => match self.context {
+                Context::Normal => self.consume_comment()?,
+                Context::Annotation(_) => self.consume_symbol(c)?,
+            },
+            '#' => match self.context {
+                Context::Normal => {
+                    self.context = Context::Annotation(0);
+                    self.emit(Token::Hash);
+                }
+                Context::Annotation(_) => {
+                    return Err(error::Token::BadChar(self.line, self.col - 1, c))
+                }
+            },
+            '"' => self.consume_string(c)?,
             c if c.is_whitespace() => {
                 // Don't need to do anything here.
             }
-            //c if c.is_ascii_digit() => self.consume_number(c)?,
-            '_' => self.consume_identifier('_')?,
-            c if c.is_alphabetic() => self.consume_identifier(c)?,
+            c if c.is_ascii_digit() => self.consume_number(c)?,
+            c if c.is_alphabetic() => match self.context {
+                Context::Normal => self.consume_identifier(c)?,
+                Context::Annotation(_) => self.consume_symbol(c)?,
+            },
+            '_' => match self.context {
+                Context::Normal => self.consume_identifier(c)?,
+                Context::Annotation(_) => self.consume_symbol(c)?,
+            },
+            c if c.is_symbol_start() => match self.context {
+                Context::Normal => return Err(error::Token::BadChar(self.line, self.col - 1, c)),
+                Context::Annotation(_) => self.consume_symbol(c)?,
+            },
             c => return Err(error::Token::BadChar(self.line, self.col - 1, c)),
         }
 

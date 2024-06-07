@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::ast;
+use crate::parse::token;
 use crate::reporting::{Col, Line, Position, Report, WrpcDocBuilder};
 /// ! This module contains all potential syntax errors
 /// ! of the wRPC language.
@@ -35,6 +36,7 @@ pub enum Data {
     BadProperty(Property),
     MissingStart(Line, Col),
     MissingEnd(ast::Name, usize, usize),
+    BadAnnotation(Annotation),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -44,6 +46,7 @@ pub enum Enum {
     BadVariant(Variant),
     MissingStart(Line, Col),
     MissingEnd(usize, usize),
+    BadAnnotation(Annotation),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -52,12 +55,14 @@ pub enum Service {
     BadMethod(Method),
     MissingStart(Line, Col),
     MissingEnd(ast::Name, usize, usize),
+    BadAnnotation(Annotation),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Variant {
     BadName(Name),
     BadComment(Token),
+    BadAnnotation(Annotation),
     BadProperty(Property),
     BadReturnType(Type),
     MissingComma(Line, Col),
@@ -74,6 +79,12 @@ pub enum Method {
     MissingDef(Line, Col),
     MissingParamStart(ast::Name, Line, Col),
     MissingParamEnd(ast::Name, Line, Col),
+    BadAnnotation(Annotation),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum Annotation {
+    BadExpr(Expr),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -89,6 +100,7 @@ pub enum Property {
     MissingComma(Line, Col),
     MissingType(Region),
     MissingColon(ast::Name, Line, Col),
+    BadAnnotation(Annotation),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
@@ -127,9 +139,9 @@ pub enum Name {
 pub enum Expr {
     String(Str, Line, Col),
     Number(Number, Line, Col),
-    BadToken(Region, parse::token::Token),
     Endless(Line, Col),
-    BadChar(char, Line, Col),
+    Unexpected(Region, token::Token),
+    BadToken(Token),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
@@ -251,6 +263,12 @@ impl Decl {
                         "Test",
                     )),
                     alloc.snippet(region),
+                ]),
+            },
+            Decl::BadData(Data::BadAnnotation(annotation)) => Report {
+                title: "MISSING PROPERTY NAME AND TYPE SEPARATOR".to_string(),
+                doc: alloc.stack([
+                    alloc.reflow(format!("I found a bad annotation: `{annotation:?}`")),
                 ]),
             },
             Decl::BadData(_) => Report {

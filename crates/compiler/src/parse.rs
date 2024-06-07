@@ -1,5 +1,6 @@
 use crate::ast::{
-    Data, Decl, Enum, Meta, Method, Module, Name, Parameter, Property, Service, Type, Variant,
+    Annotation, Data, Decl, Enum, Expr, Method, Module, Name, Parameter, Property, Service, Type,
+    Variant,
 };
 use crate::error::syntax;
 use crate::parse::lexer::LexResult;
@@ -70,36 +71,27 @@ where
         let comment = self
             .parse_comment()
             .map_err(|error| syntax::Decl::BadData(syntax::Data::BadComment(error)))?;
-        //let annotations = self.parse_annotations()?;
+        let annotations = self
+            .parse_annotations()
+            .map_err(|error| syntax::Decl::BadData(syntax::Data::BadAnnotation(error)))?;
         match self.advance() {
             None => Ok(None),
             Some(Ok((_, Token::Data))) => self
-                .parse_data(comment, vec![])
+                .parse_data(comment, annotations)
                 .map(|x| Some(Decl::Data(x)))
                 .map_err(syntax::Decl::BadData),
             Some(Ok((_, Token::Service))) => self
-                .parse_service(comment, vec![])
+                .parse_service(comment, annotations)
                 .map(|x| Some(Decl::Service(x)))
                 .map_err(syntax::Decl::BadService),
             Some(Ok((_, Token::Enum))) => self
-                .parse_enum(comment, vec![])
+                .parse_enum(comment, annotations)
                 .map(|x| Some(Decl::Enum(x)))
                 .map_err(syntax::Decl::BadEnum),
             Some(Ok((region, _))) => {
                 Err(syntax::Decl::BadStart(region.start.line, region.start.col))
             }
             Some(Err(_)) => Err(syntax::Decl::BadStart(0, 0)),
-            //Some((_, Token::Enum)) => self
-            //    .parse_enum(comment, annotations)
-            //    .map(|x| Some(Decl::Enum(x))),
-            //Some((_, Token::Service)) => self
-            //    .parse_service(comment, annotations)
-            //    .map(|x| Some(Decl::Service(x))),
-            //Some((region, token)) => Err(UnexpectedToken {
-            //    region: Some(region),
-            //    found: token,
-            //    expected: Token::Data,
-            //}),
         }
     }
 
@@ -115,7 +107,7 @@ where
     fn parse_enum(
         &mut self,
         comment: Option<String>,
-        annotations: Vec<Meta>,
+        annotations: Vec<Annotation>,
     ) -> Result<Enum, syntax::Enum> {
         let name = self.expect_name().map_err(syntax::Enum::BadName)?;
         self.expect_token(Token::LBrace)
@@ -148,7 +140,9 @@ where
 
     fn parse_variant(&mut self, variants: &mut Vec<Variant>) -> Result<(), syntax::Variant> {
         let comment = self.parse_comment().map_err(syntax::Variant::BadComment)?;
-        // parse annotations
+        let annotations = self
+            .parse_annotations()
+            .map_err(syntax::Variant::BadAnnotation)?;
         let name = self.expect_name().map_err(syntax::Variant::BadName)?;
         self.expect_token(Token::LBrace)
             .map_err(|pos| syntax::Variant::MissingParamStart(name.clone(), pos.line, pos.col))?;
@@ -162,7 +156,7 @@ where
         let variant = Variant {
             name,
             properties,
-            annotations: vec![],
+            annotations,
             doc_comment: comment,
         };
 
@@ -174,7 +168,7 @@ where
     fn parse_service(
         &mut self,
         comment: Option<String>,
-        annotations: Vec<Meta>,
+        annotations: Vec<Annotation>,
     ) -> Result<Service, syntax::Service> {
         let name = self.expect_name().map_err(syntax::Service::BadName)?;
         self.expect_token(Token::LBrace)
@@ -203,7 +197,9 @@ where
 
     fn parse_method(&mut self, methods: &mut Vec<Method>) -> Result<(), syntax::Method> {
         let comment = self.parse_comment().map_err(syntax::Method::BadComment)?;
-        // parse annotations
+        let annotations = self
+            .parse_annotations()
+            .map_err(syntax::Method::BadAnnotation)?;
         self.expect_token(Token::Def)
             .map_err(|pos| syntax::Method::MissingDef(pos.line, pos.col))?;
         let name = self.expect_name().map_err(syntax::Method::BadName)?;
@@ -230,7 +226,7 @@ where
                     type_: prop.type_.clone(),
                 })
                 .collect(),
-            annotations: vec![],
+            annotations,
             return_type,
             doc_comment: comment,
         };
@@ -243,7 +239,7 @@ where
     fn parse_data(
         &mut self,
         comment: Option<String>,
-        annotations: Vec<Meta>,
+        annotations: Vec<Annotation>,
     ) -> Result<Data, syntax::Data> {
         let name = self.expect_name().map_err(syntax::Data::BadName)?;
         let mut properties = vec![];
@@ -278,7 +274,9 @@ where
 
     fn parse_property(&mut self, properties: &mut Vec<Property>) -> Result<(), syntax::Property> {
         let comment = self.parse_comment().map_err(syntax::Property::BadComment)?;
-        // parse annotations
+        let annotations = self
+            .parse_annotations()
+            .map_err(syntax::Property::BadAnnotation)?;
         if self.matches_property_start() {
             let name = self.expect_name().map_err(syntax::Property::BadName)?;
             self.expect_token(Token::Colon)
@@ -291,7 +289,7 @@ where
             let property = Property {
                 name,
                 type_,
-                annotations: vec![],
+                annotations,
                 doc_comment: comment,
             };
             properties.push(property);
@@ -332,6 +330,59 @@ where
             name,
             variables: vec![],
         })
+    }
+
+    fn parse_annotations(&mut self) -> Result<Vec<Annotation>, syntax::Annotation> {
+        let mut annotations = vec![];
+        while self.matches(Token::Hash) {
+            let expr = self.parse_expr().map_err(syntax::Annotation::BadExpr)?;
+            annotations.push(Annotation { expr })
+        }
+
+        Ok(annotations)
+    }
+
+    fn parse_expr(&mut self) -> Result<Expr, syntax::Expr> {
+        let expr = match self.advance() {
+            None => {
+                return Err(syntax::Expr::BadToken(syntax::Token::Eof(
+                    self.last_position.line,
+                    self.last_position.col,
+                )))
+            }
+            Some(Ok((region, Token::String(value)))) => Expr::String(region, value),
+            Some(Ok((region, Token::Number(value)))) => Expr::Number(region, value),
+            Some(Ok((region, Token::Boolean(value)))) => Expr::Boolean(region, value),
+            Some(Ok((region, Token::Symbol(_, value)))) => Expr::Symbol(region, value),
+            Some(Ok((region, Token::Identifier(value)))) => Expr::Symbol(region, value),
+            Some(Ok((region, Token::LAngle))) => Expr::Symbol(region, "<".into()),
+            Some(Ok((region, Token::RAngle))) => Expr::Symbol(region, ">".into()),
+            Some(Ok((region, Token::Data))) => Expr::Symbol(region, "data".into()),
+            Some(Ok((region, Token::Service))) => Expr::Symbol(region, "service".into()),
+            Some(Ok((region, Token::Enum))) => Expr::Symbol(region, "enum".into()),
+            Some(Ok((region, Token::LParen))) => {
+                let mut expressions = vec![];
+                while !self.matches(Token::RParen) {
+                    expressions.push(self.parse_expr()?);
+                }
+
+                Expr::List(region, expressions)
+            }
+            Some(Ok((region, Token::LBrace))) => {
+                let mut expressions = vec![];
+                while !self.matches(Token::RBrace) {
+                    let left = self.parse_expr()?;
+                    let right = self.parse_expr()?;
+                    expressions.push((left, right));
+                }
+
+                Expr::Map(region, expressions)
+            }
+            Some(Ok((region, token))) => return Err(syntax::Expr::Unexpected(region, token)),
+            Some(Err(token)) => return Err(syntax::Expr::BadToken(token)),
+        };
+
+        Ok(expr)
     }
 
     // HELPERS

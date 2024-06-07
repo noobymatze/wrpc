@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use crate::ast::Module;
-use crate::parse::lexer::{lexer, LexResult};
 
 pub mod ast;
 pub mod codegen;

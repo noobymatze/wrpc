@@ -8,6 +8,11 @@ pub enum Token {
     RBrace,
     Comma,
     Data,
+    Colon,
+    RAngle,
+    LAngle,
+    Equal,
+    Hash,
     Service,
     Enum,
     Def,
@@ -19,5 +24,4 @@ pub enum Token {
     Boolean(bool),
     Number(f64),
     Eof,
-    Colon,
 }

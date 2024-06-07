@@ -1,12 +1,12 @@
-t
 // Hallo Welt!
+#(check "Hello World")
 data Greet {
     // Test
     // Multiline Test
     name: String,
     // Multiline Test
     test: Boolean,
-
+}
 
 // This is an error, that will happen
 enum Error {
@@ -20,3 +20,5 @@ service Foo {
     def foo(name: String): Greet
 
     def test(name: String): Greet
+
+}

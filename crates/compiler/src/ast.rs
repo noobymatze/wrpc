@@ -20,7 +20,7 @@ pub enum Decl {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Data {
-    pub annotations: Vec<Meta>,
+    pub annotations: Vec<Annotation>,
     pub doc_comment: Option<String>,
     pub name: Name,
     pub properties: Vec<Property>,
@@ -28,7 +28,7 @@ pub struct Data {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Property {
-    pub annotations: Vec<Meta>,
+    pub annotations: Vec<Annotation>,
     pub doc_comment: Option<String>,
     pub name: Name,
     pub type_: Type,
@@ -36,7 +36,7 @@ pub struct Property {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Enum {
-    pub annotations: Vec<Meta>,
+    pub annotations: Vec<Annotation>,
     pub doc_comment: Option<String>,
     pub name: Name,
     pub variants: Vec<Variant>,
@@ -44,7 +44,7 @@ pub struct Enum {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Variant {
-    pub annotations: Vec<Meta>,
+    pub annotations: Vec<Annotation>,
     pub doc_comment: Option<String>,
     pub name: Name,
     pub properties: Vec<Property>,
@@ -63,7 +63,7 @@ pub struct TypeVariable {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Service {
-    pub annotations: Vec<Meta>,
+    pub annotations: Vec<Annotation>,
     pub doc_comment: Option<String>,
     pub name: Name,
     pub methods: Vec<Method>,
@@ -71,7 +71,7 @@ pub struct Service {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Method {
-    pub annotations: Vec<Meta>,
+    pub annotations: Vec<Annotation>,
     pub doc_comment: Option<String>,
     pub name: Name,
     pub parameters: Vec<Parameter>,
@@ -80,7 +80,7 @@ pub struct Method {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Parameter {
-    pub annotations: Vec<Meta>,
+    pub annotations: Vec<Annotation>,
     pub name: Name,
     pub type_: Type,
 }
@@ -93,7 +93,7 @@ pub struct Name {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct Meta {
+pub struct Annotation {
     pub expr: Expr,
 }
 
@@ -104,6 +104,7 @@ pub enum Expr {
     String(Region, String),
     Symbol(Region, String),
     List(Region, Vec<Expr>),
+    Map(Region, Vec<(Expr, Expr)>),
 }
 
 impl Display for Expr {
@@ -113,6 +114,7 @@ impl Display for Expr {
             Expr::Number(_, value) => write!(f, "{}", value),
             Expr::String(_, value) => write!(f, "\"{}\"", value),
             Expr::Symbol(_, value) => write!(f, "{}", value),
+            Expr::Map(_, value) => write!(f, "{:?}", value),
             Expr::List(_, expressions) => write!(
                 f,
                 "({})",
