@@ -336,7 +336,7 @@ impl<T: Iterator<Item = char>> Lexer<T> {
         self.advance(); // Consume '/'
 
         let mut content = String::new();
-        while !matches!(self.peek(), None) && !matches!(self.peek(), Some(c) if c == '\n') {
+        while !self.peek().is_none() && !matches!(self.peek(), Some(c) if c == '\n') {
             content.push(self.advance().unwrap())
         }
         self.emit(Token::Comment(content.trim().into()));

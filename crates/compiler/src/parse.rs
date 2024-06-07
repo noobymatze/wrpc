@@ -326,10 +326,17 @@ where
 
     fn parse_type(&mut self) -> Result<Type, syntax::Type> {
         let name = self.expect_name().map_err(syntax::Type::BadName)?;
-        Ok(Type {
-            name,
-            variables: vec![],
-        })
+        let mut variables = vec![];
+        if self.matches(Token::LAngle) {
+            while !self.matches(Token::RAngle) {
+                variables.push(self.parse_type()?);
+                if !matches!(self.peek(), Some(Token::RAngle)) {
+                    self.expect_token(Token::Comma)
+                        .map_err(syntax::Type::MissingComma)?;
+                }
+            }
+        }
+        Ok(Type { name, variables })
     }
 
     fn parse_annotations(&mut self) -> Result<Vec<Annotation>, syntax::Annotation> {

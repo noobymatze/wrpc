@@ -190,7 +190,7 @@ const HEADER_WIDTH: usize = 80;
 pub fn pretty_header(title: &str, filename: Option<&str>) -> String {
     let title_width = title.len() + 4;
 
-    let header = if let Some(filename) = filename {
+    if let Some(filename) = filename {
         format!(
             "── {} {} {} ──",
             title,
@@ -199,6 +199,5 @@ pub fn pretty_header(title: &str, filename: Option<&str>) -> String {
         )
     } else {
         format!("── {} {}", title, "─".repeat(HEADER_WIDTH - title_width))
-    };
-    header
+    }
 }

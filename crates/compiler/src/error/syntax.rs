@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::ast;
 use crate::parse::token;
-use crate::reporting::{Col, Line, Position, Report, WrpcDocBuilder};
 /// ! This module contains all potential syntax errors
 /// ! of the wRPC language.
-use crate::{parse, reporting::Region};
+use crate::reporting::Region;
+use crate::reporting::{Col, Line, Position, Report, WrpcDocBuilder};
 
 /// A convenience [`Result`][Result] for working with
 /// syntax errors.
@@ -90,6 +90,7 @@ pub enum Annotation {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Type {
     BadName(Name),
+    MissingComma(Position),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
