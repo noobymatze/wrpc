@@ -1,4 +1,4 @@
-use crate::ast::Module;
+use crate::ast::source::Module;
 
 mod typescript;
 

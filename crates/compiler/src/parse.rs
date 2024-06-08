@@ -1,4 +1,4 @@
-use crate::ast::{
+use crate::ast::source::{
     Annotation, Data, Decl, Enum, Expr, Method, Module, Name, Parameter, Property, Service, Type,
     Variant,
 };
@@ -361,6 +361,7 @@ where
             Some(Ok((region, Token::Number(value)))) => Expr::Number(region, value),
             Some(Ok((region, Token::Boolean(value)))) => Expr::Boolean(region, value),
             Some(Ok((region, Token::Symbol(_, value)))) => Expr::Symbol(region, value),
+            Some(Ok((region, Token::Keyword(value)))) => Expr::Keyword(region, value),
             Some(Ok((region, Token::Identifier(value)))) => Expr::Symbol(region, value),
             Some(Ok((region, Token::LAngle))) => Expr::Symbol(region, "<".into()),
             Some(Ok((region, Token::RAngle))) => Expr::Symbol(region, ">".into()),

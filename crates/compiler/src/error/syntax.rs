@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::ast;
+use crate::ast::source as ast;
 use crate::parse::token;
 /// ! This module contains all potential syntax errors
 /// ! of the wRPC language.

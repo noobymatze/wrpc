@@ -3,7 +3,7 @@
 data Greet {
     // Test
     // Multiline Test
-    #(check (min 1))
+    #(check (>= .name 1))
     name: String,
     // Multiline Test
     test: Boolean,
@@ -19,7 +19,7 @@ enum Error {
 #(route "/foo")
 service Foo {
 
-    #(get "/test")
+    #(get "/test" {:test "hoho"})
     def foo(name: String): Greet
 
     def test(name: String): Result<Error, Greet>

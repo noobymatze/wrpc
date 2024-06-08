@@ -55,11 +55,14 @@ pub fn run(cli: Cli) -> Result<(), Error> {
         Command::Parse { file } => {
             let result = fs::read_to_string(&file)?;
             let str = result.as_str();
-            match compiler::parse(Some(file.clone()), str) {
+            match compiler::compile(Some(file.clone()), str) {
                 Ok(module) => println!("{module:?}"),
 
                 Err(wrpc::Error::BadSyntax(errors)) => {
                     render_errors(&file, str, errors);
+                }
+                Err(wrpc::Error::BadCanonicalization(error)) => {
+                    println!("Bad canonicalization happened: {error:?}");
                 }
             }
         }
