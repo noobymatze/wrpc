@@ -146,4 +146,9 @@ impl Name {
             Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
         }
     }
+
+    pub fn request_name(&self) -> String {
+        let value = self.capitalized();
+        format!("{value}Request")
+    }
 }

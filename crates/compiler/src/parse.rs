@@ -144,14 +144,18 @@ where
             .parse_annotations()
             .map_err(syntax::Variant::BadAnnotation)?;
         let name = self.expect_name().map_err(syntax::Variant::BadName)?;
-        self.expect_token(Token::LBrace)
-            .map_err(|pos| syntax::Variant::MissingParamStart(name.clone(), pos.line, pos.col))?;
-        let properties = self
-            .parse_properties()
-            .map_err(syntax::Variant::BadProperty)?;
+        let properties = if self.matches(Token::LBrace) {
+            let properties = self
+                .parse_properties()
+                .map_err(syntax::Variant::BadProperty)?;
 
-        self.expect_token(Token::RBrace)
-            .map_err(|pos| syntax::Variant::MissingParamEnd(name.clone(), pos.line, pos.col))?;
+            self.expect_token(Token::RBrace)
+                .map_err(|pos| syntax::Variant::MissingParamEnd(name.clone(), pos.line, pos.col))?;
+
+            properties
+        } else {
+            vec![]
+        };
 
         let variant = Variant {
             name,

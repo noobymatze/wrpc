@@ -38,32 +38,6 @@ impl Module {
             .map(|service| service.methods.get(method_name.into().as_str()))
             .flatten()
     }
-
-    /// Returns the [Type] by the given name, if it is found.
-    ///
-    /// ## Example
-    ///
-    /// Given the following .wrpc data declaration.
-    ///
-    /// ```
-    /// data Person {
-    ///     name: String,
-    ///     age: Int32,
-    /// }
-    /// ```
-    ///
-    /// We should be able to find a declaration for it using this method.
-    ///
-    /// ```
-    /// let expected = Some(Type::Record(..))
-    /// module.get_type("RandomService", "random") == expected
-    /// ```
-    pub fn get_type(&self, name: &str) -> Option<Type> {
-        self.records
-            .get(name)
-            .map(|value| Type::Record(value.clone()))
-            .or_else(|| self.enums.get(name).map(|value| Type::Enum(value.clone())))
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -136,8 +110,6 @@ pub enum Type {
     List(Box<Type>),
     Set(Box<Type>),
     Option(Box<Type>),
-    Record(Record),
-    Enum(Enum),
     Ref(String),
 }
 

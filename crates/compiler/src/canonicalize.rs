@@ -208,6 +208,19 @@ fn parse_constraint(expr: &src::Expr) -> Result<Constraint, canonicalize::Annota
                     .map(parse_constraint)
                     .collect::<Result<Vec<Constraint>, canonicalize::Annotation>>()?,
             ),
+            [src::Expr::Symbol(_, value), args @ ..] if value == "or" => Constraint::Or(
+                args.iter()
+                    .map(parse_constraint)
+                    .collect::<Result<Vec<Constraint>, canonicalize::Annotation>>()?,
+            ),
+            [src::Expr::Symbol(_, value), arg, args @ ..] if value == "len" => {
+                Constraint::Len(Box::new(parse_constraint(arg)?))
+            }
+            [src::Expr::Symbol(_, value), args @ ..] if value == "and" => Constraint::And(
+                args.iter()
+                    .map(parse_constraint)
+                    .collect::<Result<Vec<Constraint>, canonicalize::Annotation>>()?,
+            ),
             _ => unimplemented!(),
         },
         src::Expr::Map(_, values) => Constraint::Map(

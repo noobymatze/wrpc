@@ -1,4 +1,5 @@
 use clap::Parser;
+use compiler::codegen;
 use compiler::error::{self as wrpc, syntax};
 use compiler::reporting::WrpcDocBuilder;
 use std::path::PathBuf;
@@ -56,7 +57,9 @@ pub fn run(cli: Cli) -> Result<(), Error> {
             let result = fs::read_to_string(&file)?;
             let str = result.as_str();
             match compiler::compile(Some(file.clone()), str) {
-                Ok(module) => println!("{module:?}"),
+                Ok(module) => {
+                    codegen::generate(&module);
+                }
 
                 Err(wrpc::Error::BadSyntax(errors)) => {
                     render_errors(&file, str, errors);

@@ -3,16 +3,21 @@
 data Greet {
     // Test
     // Multiline Test
-    #(check (>= .name 1))
+    #(check (>= (len .name) 1))
     name: String,
     // Multiline Test
     test: Boolean,
 }
 
+enum State1 {
+    Waiting,
+    Done,
+}
+
 // This is an error, that will happen
-enum Error {
+enum Error1 {
     // More stuff!
-    Hello { name: String, },
+    Hello { name: String, foo: Int32},
     Foo { name: String, },
 }
 
@@ -22,6 +27,6 @@ service Foo {
     #(get "/test" {:test "hoho"})
     def foo(name: String): Greet
 
-    def test(name: String): Result<Error, Greet>
+    def test(name: String): Result<Error1, Greet>
 
 }
