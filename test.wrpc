@@ -21,9 +21,12 @@ enum Error1 {
     Foo { name: String, },
 }
 
+// And another comment for foo
 #(route "/foo")
-service Foo {
+service FooService {
 
+    // This is a comprehension doc comment for the foo
+    // method. It is brilliant because.
     #(get "/test" {:test "hoho"})
     def foo(name: String): Greet
 

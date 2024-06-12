@@ -26,6 +26,8 @@ enum Command {
     Parse {
         #[arg()]
         file: PathBuf,
+        #[arg(short, long)]
+        print: bool,
     },
 }
 
@@ -53,12 +55,12 @@ pub fn run(cli: Cli) -> Result<(), Error> {
                 render_errors(&file, str, errors);
             }
         }
-        Command::Parse { file } => {
+        Command::Parse { file, print } => {
             let result = fs::read_to_string(&file)?;
             let str = result.as_str();
             match compiler::compile(Some(file.clone()), str) {
                 Ok(module) => {
-                    codegen::generate(&module);
+                    codegen::generate(&module, print);
                 }
 
                 Err(wrpc::Error::BadSyntax(errors)) => {

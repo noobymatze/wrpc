@@ -7,7 +7,7 @@ mod kotlin;
 mod rust;
 mod typescript;
 
-pub fn generate(module: &Module) -> Result<(), ()> {
-    rust::generate_rust_server(module);
-    typescript::generate_typescript_client(module)
+pub fn generate(module: &Module, print: bool) -> Result<(), ()> {
+    //rust::generate_rust_server(module);
+    typescript::generate_typescript_client(module, print)
 }

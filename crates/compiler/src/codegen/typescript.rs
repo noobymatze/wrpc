@@ -3,41 +3,63 @@ use crate::ast::{
     source::Name,
 };
 
-pub fn generate_typescript_client(module: &Module) -> Result<(), ()> {
+pub fn generate_typescript_client(module: &Module, print: bool) -> Result<(), ()> {
     let record_package = "records".to_owned();
+
     //for decl in module.declarations.iter() {}
-    for (_, record) in &module.records {
-        println!("{}", generate_record(&record_package, record));
-    }
+    let records = &module
+        .records
+        .iter()
+        .map(|(_, record)| generate_record(&record_package, record))
+        .collect::<Vec<String>>()
+        .join("\n\n");
 
-    for (_, enum_value) in &module.enums {
-        println!("{}", generate_enum(&record_package, enum_value));
-    }
+    let enums = &module
+        .enums
+        .iter()
+        .map(|(_, record)| generate_enum(&record_package, record))
+        .collect::<Vec<String>>()
+        .join("\n\n");
 
-    for (_, service) in &module.services {
-        println!("{}", generate_service_interface(&record_package, service));
-    }
+    let result_type = r#"
+/**
+ * A {@link Result} either represents the result of a successful computation,
+ * with a value of type {@link T} or a failed computation with an error of
+ * type {@link E}.
+ */
+export type Result<T, E>
+    = { type: "Ok"; value: T; }
+    | { type: "Err"; error: E; };
+    "#;
 
-    println!("{}", generate_service(&record_package, &module));
-    println!("{}", generate_client(&record_package, &module));
+    println!("{result_type}\n{records}\n\n{enums}\n");
 
-    let rpcFn = r#"
-function rpc<Params, Ret>(
-    baseUrl: string,
-    path: string,
-): (params: Params) => Promise<Ret> {
-    return async (params) => {
-    return fetch(`${baseUrl}${path}`, {
-        method: "POST",
-        body: JSON.stringify(params),
-        headers: {
-        "Content-Type": "application/json",
-        },
-    }).then((response) => response.json());
-    };
-}"#;
+    let imports = module
+        .records
+        .iter()
+        .map(|x| x.1.name.capitalized())
+        .chain(module.enums.iter().map(|x| x.1.name.capitalized()))
+        .chain(vec!["Result".to_string()].into_iter())
+        .collect::<Vec<String>>()
+        .join(", ");
 
-    println!("{}", rpcFn);
+    let interfaces = module
+        .services
+        .iter()
+        .map(|(_, service)| generate_service_interface(&record_package, service))
+        .collect::<Vec<String>>()
+        .join("\n\n");
+
+    let services = [
+        format!("import {{ {imports} }} from './models.ts';\n"),
+        format!("{}\n", interfaces),
+        format!("{}\n", generate_client(&record_package, module)),
+        format!("{}", generate_service(&record_package, module)),
+        format!("{}", generate_rpc_fn()),
+    ]
+    .join("\n");
+
+    println!("{}", services);
 
     Ok(())
 }
@@ -80,13 +102,13 @@ fn generate_enum(package: &String, record: &Enum) -> String {
 
     let class = if is_sealed {
         let name = record.name.value.clone();
-        format!("type {name} = \n{variants}")
+        format!("export type {name} = \n{variants}")
     } else {
         let name = record.name.value.clone();
-        format!("enum {name} {{\n{variants}\n}}")
+        format!("export enum {name} {{\n{variants}\n}}")
     };
 
-    format!("{doc_comment}{class}\n")
+    format!("{doc_comment}{class}")
 }
 
 fn generate_variant(
@@ -129,7 +151,8 @@ fn generate_client(package: &String, module: &Module) -> String {
         })
         .collect::<Vec<String>>()
         .join("\n");
-    format!("export type Client = {{\n{client_type}\n}}")
+    let comment = generate_doc_comment("", &Some("Represents a Client, which can be used to work with the corresponding server instance.".to_string()));
+    format!("{comment}export type Client = {{\n{client_type}\n}}")
 }
 
 fn generate_service_interface(package: &String, service: &Service) -> String {
@@ -140,34 +163,35 @@ fn generate_service_interface(package: &String, service: &Service) -> String {
         .collect::<Vec<String>>()
         .join("\n");
 
+    let requests = service
+        .methods
+        .iter()
+        .map(|(_, method)| generate_request(package, &method))
+        .collect::<Vec<String>>()
+        .join("\n\n");
+
+    let comment = generate_doc_comment("", &service.comment);
     let name = service.name.capitalized();
-    format!("export interface {name} {{\n{methods}\n}}")
+    [
+        format!("{requests}"),
+        format!("{comment}export interface {name} {{\n{methods}\n}}"),
+    ]
+    .join("\n\n")
 }
 
 fn generate_method_signature(package: &String, method: &Method) -> String {
     let name = method.name.uncapitalized();
+    let request_name = method.name.request_name();
     let return_type = method
         .return_type
         .as_ref()
         .map(|type_| generate_type_ref(package, &type_))
         .unwrap_or("void".to_string());
 
-    let req = generate_request(package, method);
-
-    format!("    {name}: (params: {req}) => Promise<{return_type}>;")
-}
-
-fn generate_request(package: &String, method: &Method) -> String {
-    let name = method.name.capitalized();
-    let request_name = method.name.request_name();
-    let properties = method
-        .parameters
-        .iter()
-        .map(|property| generate_param_property("", package, property))
-        .collect::<Vec<String>>()
-        .join("");
-
-    format!("{{{properties}}}")
+    let comment = generate_doc_comment("    ", &method.comment);
+    format!(
+        "{comment}    {name}: (params: {request_name}) => Promise<HttpResponse<{return_type}>>;"
+    )
 }
 
 fn generate_param_property(indent: &str, package: &String, property: &Parameter) -> String {
@@ -195,8 +219,21 @@ fn generate_service(package: &String, module: &Module) -> String {
         .join(",\n");
 
     format!(
-        "export function createClient(baseUrl: string): Client {{\n    return {{\n{impls}\n    }}; \n}}"
+        "export function client(baseUrl: string): Client {{\n    return {{\n{impls}\n    }}; \n}}"
     )
+}
+
+fn generate_request(package: &String, method: &Method) -> String {
+    let name = method.name.capitalized();
+    let request_name = method.name.request_name();
+    let properties = method
+        .parameters
+        .iter()
+        .map(|property| generate_param_property("    ", package, property))
+        .collect::<Vec<String>>()
+        .join("\n");
+
+    format!("export type {request_name} = {{\n{properties}\n}}")
 }
 
 fn generate_method(package: &String, service: &Service, method: &Method) -> String {
@@ -204,7 +241,6 @@ fn generate_method(package: &String, service: &Service, method: &Method) -> Stri
     let method_name = method.name.value.clone();
     let name = method.name.uncapitalized();
     let request_name = method.name.request_name();
-    let request = generate_request(package, method);
 
     let return_type = method
         .return_type
@@ -214,7 +250,7 @@ fn generate_method(package: &String, service: &Service, method: &Method) -> Stri
 
     let indent = "            ";
     format!(
-        "{indent}{name}: rpc<{request}, {return_type}>(baseUrl, \"/{service_name}/{method_name}\")"
+        "{indent}{name}: request<{request_name}, {return_type}>(baseUrl, \"/{service_name}/{method_name}\")"
     )
 }
 
@@ -264,4 +300,70 @@ fn generate_type_ref(package: &String, type_: &Type) -> String {
         }
         Type::Ref(name) => name.clone(),
     }
+}
+
+fn generate_rpc_fn() -> String {
+    r#"
+/**
+ * Represents an http response.
+ */
+export type HttpResponse<T>
+    = { type: 'Ok'; value: T; }
+    | { type: 'Err'; error: HttpError; }
+
+/**
+ * Represents any error, that could happen during a request.
+ */
+export type HttpError
+    = { type: 'Network', }
+    | { type: 'Timeout', }
+    | { type: 'BadUrl', }
+    | { type: 'BadStatus', headers: Headers, body: string }
+    | { type: 'BadBody', };
+
+/**
+ * Returns a function, that can be used to call the given method
+ * for an rpc.
+ *
+ * @param baseUrl
+ * @param path
+ */
+function request<Params, Ret>(
+    baseUrl: string,
+    path: string,
+): (params: Params) => Promise<HttpResponse<Ret>> {
+    return async (params) => {
+        try {
+            const response = await fetch(`${baseUrl}${path}`, {
+                method: "POST",
+                body: JSON.stringify(params),
+                headers: {
+                    "Content-Type": "application/json",
+                },
+            });
+
+            try {
+                if (!response.ok) {
+                    const statusCode = response.status;
+                    const body = await response.text();
+                    const headers = response.headers;
+                    return {type: 'Err', error: {type: 'BadStatus', statusCode, headers, body}};
+                }
+
+                const value = await response.json();
+                return {type: 'Ok', value };
+            } catch (error) {
+                return {type: 'Err', error: {type: 'BadBody'}};
+            }
+        } catch (error) {
+            if (error instanceof DOMException && error.message === 'Timeout') {
+                return {type: 'Err', error: {type: 'Timeout'}};
+            }
+
+            return {type: 'Err', error: {type: 'Network'}};
+        }
+    };
+}
+"#
+    .to_string()
 }
