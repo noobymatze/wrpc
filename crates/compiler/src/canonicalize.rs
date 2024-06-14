@@ -213,7 +213,7 @@ fn parse_constraint(expr: &src::Expr) -> Result<Constraint, canonicalize::Annota
                     .map(parse_constraint)
                     .collect::<Result<Vec<Constraint>, canonicalize::Annotation>>()?,
             ),
-            [src::Expr::Symbol(_, value), arg, args @ ..] if value == "len" => {
+            [src::Expr::Symbol(_, value), arg, _args @ ..] if value == "len" => {
                 Constraint::Len(Box::new(parse_constraint(arg)?))
             }
             [src::Expr::Symbol(_, value), args @ ..] if value == "and" => Constraint::And(

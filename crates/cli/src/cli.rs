@@ -29,8 +29,31 @@ enum Command {
     },
     #[command()]
     Gen {
+        #[command(subcommand)]
+        lang: Lang,
+    },
+}
+
+#[derive(Parser, Debug, Clone)]
+enum Lang {
+    Rust {
         #[arg()]
         file: PathBuf,
+        /// The output path of the resulting files
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    Ts {
+        #[arg()]
+        file: PathBuf,
+        /// The output path of the resulting files
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    Kotlin {
+        #[arg()]
+        file: PathBuf,
+        /// The output path of the resulting files
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
@@ -76,15 +99,37 @@ pub fn run(cli: Cli) -> Result<(), Error> {
                 }
             }
         }
-        Command::Gen { file, output } => {
+        Command::Gen { lang } => {
+            let file = match &lang {
+                Lang::Rust { file, .. } => file,
+                Lang::Ts { file, .. } => file,
+                Lang::Kotlin { file, .. } => file,
+            };
+
+            let output = match &lang {
+                Lang::Rust { output, .. } => output,
+                Lang::Ts { output, .. } => output,
+                Lang::Kotlin { output, .. } => output,
+            };
+
             let result = fs::read_to_string(&file)?;
             let str = result.as_str();
             let print = output.is_none();
             match compiler::compile(Some(file.clone()), str) {
                 Ok(module) => {
-                    let options = codegen::command::TypescriptOptions { print, output };
+                    let cmd = match lang {
+                        Lang::Rust { .. } => codegen::command::Command::Rust,
+                        Lang::Ts { .. } => {
+                            let options = codegen::command::TypescriptOptions {
+                                print,
+                                output: output.clone(),
+                            };
+                            codegen::command::Command::Typescript(options)
+                        }
+                        Lang::Kotlin { .. } => codegen::command::Command::Kotlin,
+                    };
 
-                    codegen::generate(&module, &codegen::command::Command::Typescript(options));
+                    codegen::generate(&module, &cmd)?;
                 }
 
                 Err(wrpc::Error::BadSyntax(errors)) => {

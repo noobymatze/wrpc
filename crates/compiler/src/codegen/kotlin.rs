@@ -2,8 +2,9 @@ use crate::ast::{
     canonical::{Enum, Method, Module, Property, Record, Service, Type, Variant},
     source::Name,
 };
+use std::io;
 
-pub fn generate_kotlin_server(module: &Module) -> Result<(), ()> {
+pub fn generate_kotlin_server(module: &Module) -> Result<(), io::Error> {
     let record_package = "records".to_owned();
     //for decl in module.declarations.iter() {}
     for (_, record) in &module.records {
@@ -100,7 +101,7 @@ fn generate_companion_object(record_package: &String, service: &Service) -> Stri
     format!("    companion object {{\n\n{func}\n    }}")
 }
 
-fn generate_ktor_handler(record_package: &String, service: &Service, method: &Method) -> String {
+fn generate_ktor_handler(_record_package: &String, service: &Service, method: &Method) -> String {
     let service_name = service.name.value.clone();
     let name = method.name.value.clone();
     let request_name = format!("{}Request", method.name.capitalized());

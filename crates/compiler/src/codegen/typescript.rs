@@ -4,10 +4,10 @@ use crate::ast::{
 };
 use itertools::Itertools;
 use std::collections::HashSet;
-use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
+use std::{fs, io};
 
 #[derive(Debug)]
 pub struct Options {
@@ -15,7 +15,7 @@ pub struct Options {
     pub output: Option<PathBuf>,
 }
 
-pub fn generate_typescript_client(module: &Module, options: &Options) -> Result<(), ()> {
+pub fn generate_typescript_client(module: &Module, options: &Options) -> Result<(), io::Error> {
     let record_package = "records".to_string();
     let models = generate_models(&record_package, module);
     let client = generate_client_and_services(&record_package, module);
@@ -26,14 +26,12 @@ pub fn generate_typescript_client(module: &Module, options: &Options) -> Result<
     }
 
     if let Some(out) = &options.output {
-        fs::create_dir_all(out).expect("Should work.");
-        let mut file =
-            File::create(out.join("models.ts")).expect("Should be able to create a file");
-        file.write_all(models.as_bytes()).expect("Works");
+        fs::create_dir_all(out)?;
+        let mut file = File::create(out.join("models.ts"))?;
+        file.write_all(models.as_bytes())?;
 
-        let mut file =
-            File::create(out.join("client.ts")).expect("Should be able to create a file");
-        file.write_all(client.as_bytes()).expect("Works");
+        let mut file = File::create(out.join("client.ts"))?;
+        file.write_all(client.as_bytes())?;
     }
 
     Ok(())
@@ -77,7 +75,7 @@ fn generate_client_and_services(package: &String, module: &Module) -> String {
         .collect::<Vec<String>>()
         .join("\n\n");
 
-    let mut imports = find_used_types(module).iter().join(", ");
+    let imports = find_used_types(module).iter().join(", ");
 
     [
         format!("import {{ {imports} }} from './models.ts';\n"),
@@ -137,7 +135,7 @@ fn generate_record(package: &String, record: &Record) -> String {
     let properties = record
         .properties
         .iter()
-        .map(|property| generate_property("    ", package, property, false))
+        .map(|property| generate_property("    ", package, property))
         .collect::<Vec<String>>()
         .join("\n");
 
@@ -148,7 +146,7 @@ fn generate_record(package: &String, record: &Record) -> String {
     format!("{doc_comment}{class}")
 }
 
-fn generate_property(indent: &str, package: &String, property: &Property, is_enum: bool) -> String {
+fn generate_property(indent: &str, package: &String, property: &Property) -> String {
     let name = property.name.value.clone();
     let type_ = generate_type_ref(package, &property.type_);
     format!("{indent}{name}: {type_},")
@@ -197,11 +195,11 @@ fn generate_variant(
     format!("{variant}")
 }
 
-fn generate_sealed_sub_class(package: &String, parent_name: &Name, variant: &Variant) -> String {
+fn generate_sealed_sub_class(package: &String, _parent_name: &Name, variant: &Variant) -> String {
     let properties = variant
         .properties
         .iter()
-        .map(|property| generate_property("", package, property, true))
+        .map(|property| generate_property("", package, property))
         .collect::<Vec<String>>()
         .join(" ");
 
@@ -209,7 +207,7 @@ fn generate_sealed_sub_class(package: &String, parent_name: &Name, variant: &Var
     format!("    | {{ type: '{name}', {properties} }}")
 }
 
-fn generate_client(package: &String, module: &Module) -> String {
+fn generate_client(_package: &String, module: &Module) -> String {
     let client_type = module
         .services
         .iter()
@@ -293,7 +291,6 @@ fn generate_service(package: &String, module: &Module) -> String {
 }
 
 fn generate_request(package: &String, method: &Method) -> String {
-    let name = method.name.capitalized();
     let request_name = method.name.request_name();
     let properties = method
         .parameters

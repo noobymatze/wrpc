@@ -1,9 +1,9 @@
-use crate::ast::{
-    canonical::{Enum, Method, Module, Parameter, Property, Record, Service, Type, Variant},
-    source::Name,
+use crate::ast::canonical::{
+    Enum, Method, Module, Parameter, Property, Record, Service, Type, Variant,
 };
+use std::io;
 
-pub fn generate_rust_server(module: &Module) -> Result<(), ()> {
+pub fn generate_rust_server(module: &Module) -> Result<(), io::Error> {
     let record_package = "records".to_owned();
     //for decl in module.declarations.iter() {}
     for (_, record) in &module.records {
@@ -44,7 +44,6 @@ fn generate_service(package: &String, service: &Service) -> String {
 }
 
 fn generate_request(package: &String, method: &Method) -> String {
-    let name = method.name.capitalized();
     let request_name = method.name.request_name();
     let properties = method
         .parameters
@@ -116,7 +115,7 @@ fn generate_enum(package: &String, record: &Enum) -> String {
     let variants = record
         .variants
         .iter()
-        .map(|variant| generate_variant(package, &record.name, variant))
+        .map(|variant| generate_variant(package, variant))
         .collect::<Vec<String>>()
         .join("\n");
 
@@ -129,7 +128,7 @@ fn generate_enum(package: &String, record: &Enum) -> String {
     format!("{doc_comment}{class}")
 }
 
-fn generate_variant(package: &String, parent_name: &Name, variant: &Variant) -> String {
+fn generate_variant(package: &String, variant: &Variant) -> String {
     let doc_comment = generate_doc_comment("    ", &variant.comment);
     let variant = generate_sealed_sub_class(package, variant);
 
