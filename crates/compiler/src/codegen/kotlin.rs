@@ -3,6 +3,7 @@ use crate::ast::{
     source::Name,
 };
 use std::io;
+use std::string::ToString;
 
 pub fn generate_kotlin_server(module: &Module) -> Result<(), io::Error> {
     let record_package = "records".to_owned();
@@ -152,7 +153,11 @@ fn generate_sealed_sub_class(package: &String, parent_name: &Name, variant: &Var
 fn generate_property(indent: &str, package: &String, property: &Property) -> String {
     let name = property.name.value.clone();
     let type_ = generate_type_ref(package, &property.type_);
-    format!("{indent}val {name}: {type_},")
+    let nullable = match &property.type_ {
+        Type::Option(_) => "?",
+        _ => "",
+    };
+    format!("{indent}val {name}: {type_}{nullable},")
 }
 
 fn generate_record(package: &String, record: &Record) -> String {
@@ -202,7 +207,7 @@ fn generate_type_ref(package: &String, type_: &Type) -> String {
         }
         Type::Option(value_type) => {
             let value = generate_type_ref(package, value_type);
-            format!("kotlin.collections.Set<{value}>")
+            format!("{value}?")
         }
         Type::Ref(name) => name.clone(),
     }
@@ -228,4 +233,114 @@ fn indent_lines(indent: &str, value: String) -> String {
         .map(|line| format!("{indent}{line}"))
         .collect::<Vec<String>>()
         .join("\n")
+}
+
+fn parse_json_object(name: &Name, fields: Vec<(&Name, &Type)>) -> String {
+    let var_json = &"json".to_string();
+    let name = &name.value;
+    let var_errors = &"errors".to_string();
+    let parsing_fields = fields
+        .iter()
+        .map(|(name, type_)| parse_json_field(&"value".to_string(), name, type_))
+        .collect::<Vec<String>>()
+        .join("\n\n");
+
+    let constructor_fields = fields
+        .iter()
+        .map(|(name, type_)| match type_ {
+            Type::Option(type_) => format!("{} = {}", name.value, name.value),
+            _ => format!("{} = {}!!", name.value, name.value),
+        })
+        .collect::<Vec<String>>()
+        .join(",\n");
+
+    [
+        format!("inline fun parse({var_json}: JsonElement?, required: Boolean = true, error: (JsonElement) -> Unit): {name}? = "),
+        format!("    parseObject({var_json}, required, error) {{ value ->"),
+        format!("        val {var_errors} = mutableMapOf<String, JsonElement>()"),
+        indent_lines("        ", parsing_fields),
+        "".to_string(),
+        format!("        if ({var_errors}.isNotEmpty()) {{"),
+        format!("            error(JsonObject({var_errors}))"),
+        format!("            null"),
+        format!("        }} else {{"),
+        format!("            {name}("),
+        indent_lines("            ", constructor_fields),
+        format!("            )"),
+        format!("        }}"),
+        format!("    }}"),
+    ]
+    .join("\n")
+}
+
+fn parse_json_field(var_json: &String, name: &Name, type_: &Type) -> String {
+    let name = &name.value;
+    let var_expr = format!("{var_json}[\"{name}\"]");
+    parse_json(name, &var_expr, true, type_, |error| {
+        format!("errors[\"{name}\"] = {error}")
+    })
+}
+
+fn parse_json<F>(var: &String, var_expr: &String, required: bool, type_: &Type, error: F) -> String
+where
+    F: Fn(String) -> String,
+{
+    match type_ {
+        Type::String => [
+            format!("val {var} = parseString({var_expr}, required = {required}) {{"),
+            format!("    {}", error("it".to_string())),
+            format!("}}",),
+        ]
+        .join("\n"),
+        Type::Int32 => [
+            format!("val {var} = parseInt({var_expr}, required = {required}) {{"),
+            format!("    {}", error("it".to_string())),
+            format!("}}",),
+        ]
+        .join("\n"),
+        Type::Int64 => [
+            format!("val {var} = parseLong({var_expr}, required = {required}) {{"),
+            format!("    {}", error("it".to_string())),
+            format!("}}",),
+        ]
+        .join("\n"),
+        Type::Boolean => [
+            format!("val {var} = parseBoolean({var_expr}, required = {required}) {{"),
+            format!("    {}", error("it".to_string())),
+            format!("}}",),
+        ]
+        .join("\n"),
+        Type::Option(type_) => parse_json(var, var_expr, false, type_, error),
+        Type::Ref(name) => [
+            format!("val {var} = {name}.parse({var_expr}, required = {required}) {{"),
+            format!("    {}", error("it".to_string())),
+            format!("}}"),
+        ]
+        .join("\n"),
+        _ => format!(""),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ast::canonical::Type;
+    use crate::ast::source::Name;
+    use crate::codegen::kotlin::{parse_json, parse_json_field, parse_json_object};
+
+    #[test]
+    fn test() {
+        let record_name = Name::from_str("Greet");
+
+        let parsing = parse_json_object(
+            &record_name,
+            vec![
+                (&Name::from_str("test"), &Type::String),
+                (&Name::from_str("foo"), &Type::String),
+                (&Name::from_str("age"), &Type::Option(Box::new(Type::Int32))),
+                (&Name::from_str("person"), &Type::Ref("Person".to_string())),
+            ],
+        );
+
+        println!("{parsing}",);
+    }
 }

@@ -20,7 +20,7 @@ impl Module {
     ///
     /// Given the following .wrpc service definition.
     ///
-    /// ```
+    /// ```ignore
     /// service RandomService {
     ///     random(seed: Int32): Int32
     /// }
@@ -28,7 +28,7 @@ impl Module {
     ///
     /// We should be able to find a method for it using this method.
     ///
-    /// ```
+    /// ```ignore
     /// let expected = Some(Method { .. })
     /// module.get_method("RandomService", "random") == expected
     /// ```

@@ -92,6 +92,15 @@ pub struct Name {
     pub value: String,
 }
 
+impl Name {
+    pub fn from_str(value: &str) -> Self {
+        Name {
+            region: Region::new(0, 0, 0, 0),
+            value: value.to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Annotation {
     pub expr: Expr,
