@@ -26,8 +26,13 @@ enum Command {
     Parse {
         #[arg()]
         file: PathBuf,
+    },
+    #[command()]
+    Gen {
+        #[arg()]
+        file: PathBuf,
         #[arg(short, long)]
-        print: bool,
+        output: Option<PathBuf>,
     },
 }
 
@@ -55,12 +60,31 @@ pub fn run(cli: Cli) -> Result<(), Error> {
                 render_errors(&file, str, errors);
             }
         }
-        Command::Parse { file, print } => {
+        Command::Parse { file } => {
             let result = fs::read_to_string(&file)?;
             let str = result.as_str();
             match compiler::compile(Some(file.clone()), str) {
                 Ok(module) => {
-                    codegen::generate(&module, print);
+                    println!("{:#?}", module)
+                }
+
+                Err(wrpc::Error::BadSyntax(errors)) => {
+                    render_errors(&file, str, errors);
+                }
+                Err(wrpc::Error::BadCanonicalization(error)) => {
+                    println!("Bad canonicalization happened: {error:?}");
+                }
+            }
+        }
+        Command::Gen { file, output } => {
+            let result = fs::read_to_string(&file)?;
+            let str = result.as_str();
+            let print = output.is_none();
+            match compiler::compile(Some(file.clone()), str) {
+                Ok(module) => {
+                    let options = codegen::command::TypescriptOptions { print, output };
+
+                    codegen::generate(&module, &codegen::command::Command::Typescript(options));
                 }
 
                 Err(wrpc::Error::BadSyntax(errors)) => {

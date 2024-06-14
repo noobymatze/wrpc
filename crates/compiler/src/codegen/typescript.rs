@@ -2,22 +2,56 @@ use crate::ast::{
     canonical::{Enum, Method, Module, Parameter, Property, Record, Service, Type, Variant},
     source::Name,
 };
+use itertools::Itertools;
+use std::collections::HashSet;
+use std::fs;
+use std::fs::File;
+use std::io::Write;
+use std::path::PathBuf;
 
-pub fn generate_typescript_client(module: &Module, print: bool) -> Result<(), ()> {
-    let record_package = "records".to_owned();
+#[derive(Debug)]
+pub struct Options {
+    pub print: bool,
+    pub output: Option<PathBuf>,
+}
 
+pub fn generate_typescript_client(module: &Module, options: &Options) -> Result<(), ()> {
+    let record_package = "records".to_string();
+    let models = generate_models(&record_package, module);
+    let client = generate_client_and_services(&record_package, module);
+
+    if options.print {
+        println!("{}", models);
+        println!("{}", client);
+    }
+
+    if let Some(out) = &options.output {
+        fs::create_dir_all(out).expect("Should work.");
+        let mut file =
+            File::create(out.join("models.ts")).expect("Should be able to create a file");
+        file.write_all(models.as_bytes()).expect("Works");
+
+        let mut file =
+            File::create(out.join("client.ts")).expect("Should be able to create a file");
+        file.write_all(client.as_bytes()).expect("Works");
+    }
+
+    Ok(())
+}
+
+fn generate_models(package: &String, module: &Module) -> String {
     //for decl in module.declarations.iter() {}
     let records = &module
         .records
         .iter()
-        .map(|(_, record)| generate_record(&record_package, record))
+        .map(|(_, record)| generate_record(&package, record))
         .collect::<Vec<String>>()
         .join("\n\n");
 
     let enums = &module
         .enums
         .iter()
-        .map(|(_, record)| generate_enum(&record_package, record))
+        .map(|(_, record)| generate_enum(&package, record))
         .collect::<Vec<String>>()
         .join("\n\n");
 
@@ -32,36 +66,71 @@ export type Result<T, E>
     | { type: "Err"; error: E; };
     "#;
 
-    println!("{result_type}\n{records}\n\n{enums}\n");
+    format!("{result_type}\n{records}\n\n{enums}\n")
+}
 
-    let imports = module
-        .records
-        .iter()
-        .map(|x| x.1.name.capitalized())
-        .chain(module.enums.iter().map(|x| x.1.name.capitalized()))
-        .chain(vec!["Result".to_string()].into_iter())
-        .collect::<Vec<String>>()
-        .join(", ");
-
+fn generate_client_and_services(package: &String, module: &Module) -> String {
     let interfaces = module
         .services
         .iter()
-        .map(|(_, service)| generate_service_interface(&record_package, service))
+        .map(|(_, service)| generate_service_interface(&package, service))
         .collect::<Vec<String>>()
         .join("\n\n");
 
-    let services = [
+    let mut imports = find_used_types(module).iter().join(", ");
+
+    [
         format!("import {{ {imports} }} from './models.ts';\n"),
         format!("{}\n", interfaces),
-        format!("{}\n", generate_client(&record_package, module)),
-        format!("{}", generate_service(&record_package, module)),
+        format!("{}\n", generate_client(&package, module)),
+        format!("{}", generate_service(&package, module)),
         format!("{}", generate_rpc_fn()),
     ]
-    .join("\n");
+    .join("\n")
+}
 
-    println!("{}", services);
+fn find_used_types(module: &Module) -> HashSet<String> {
+    let mut result = HashSet::new();
+    for (_, service) in &module.services {
+        for (_, method) in &service.methods {
+            for param in &method.parameters {
+                collect_type_names(&mut result, &param.type_);
+            }
 
-    Ok(())
+            if let Some(type_) = &method.return_type {
+                collect_type_names(&mut result, type_)
+            }
+        }
+    }
+
+    result
+}
+
+fn collect_type_names(types: &mut HashSet<String>, type_: &Type) {
+    match type_ {
+        Type::Ref(name) => {
+            types.insert(name.clone());
+        }
+        Type::Result(ok_type, error_type) => {
+            types.insert("Result".to_string());
+            collect_type_names(types, ok_type);
+            collect_type_names(types, error_type);
+        }
+        Type::Map(key_type, value_type) => {
+            collect_type_names(types, key_type);
+            collect_type_names(types, value_type);
+        }
+        Type::List(value_type) => {
+            collect_type_names(types, value_type);
+        }
+        Type::Option(value_type) => {
+            collect_type_names(types, value_type);
+        }
+        Type::Set(value_type) => {
+            collect_type_names(types, value_type);
+        }
+        _ => {}
+    }
 }
 
 fn generate_record(package: &String, record: &Record) -> String {
