@@ -36,6 +36,7 @@ enum Command {
 
 #[derive(Parser, Debug, Clone)]
 enum Lang {
+    /// Generate a Rust server with Axum.
     Rust {
         #[arg()]
         file: PathBuf,
@@ -43,6 +44,7 @@ enum Lang {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Generate a Typescript Client.
     Ts {
         #[arg()]
         file: PathBuf,
@@ -50,6 +52,7 @@ enum Lang {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Generate a Typescript Client.
     Kotlin {
         #[arg()]
         file: PathBuf,
