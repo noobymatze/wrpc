@@ -2,22 +2,78 @@ use crate::ast::{
     canonical::{Enum, Method, Module, Property, Record, Service, Type, Variant},
     source::Name,
 };
-use std::io;
+use itertools::Itertools;
+use std::fs::File;
+use std::io::Write;
+use std::path::PathBuf;
 use std::string::ToString;
+use std::{fs, io};
 
-pub fn generate_kotlin_server(module: &Module) -> Result<(), io::Error> {
-    let record_package = "records".to_owned();
+#[derive(Debug)]
+pub struct Options {
+    pub print: bool,
+    pub output: Option<PathBuf>,
+    pub package: String,
+}
+
+pub fn generate_kotlin_server(module: &Module, options: &Options) -> Result<(), io::Error> {
+    let record_package = &options.package;
     //for decl in module.declarations.iter() {}
-    for (_, record) in &module.records {
-        println!("{}", generate_record(&record_package, record));
+    if options.print {
+        println!("{}", generate_json_functions(record_package));
+        println!("{}", generate_result_type(record_package));
+        for (_, record) in &module.records {
+            println!("{}", generate_record(&record_package, record));
+        }
+
+        for (_, enum_value) in &module.enums {
+            println!("{}", generate_enum(&record_package, enum_value));
+        }
+
+        for (_, service) in &module.services {
+            println!("{}", generate_service(&record_package, service));
+        }
     }
 
-    for (_, enum_value) in &module.enums {
-        println!("{}", generate_enum(&record_package, enum_value));
-    }
+    if let Some(out) = &options.output {
+        fs::create_dir_all(out)?;
+        fs::create_dir_all(out.join("json"))?;
+        fs::create_dir_all(out.join("models"))?;
+        fs::create_dir_all(out.join("services"))?;
 
-    for (_, service) in &module.services {
-        println!("{}", generate_service(&record_package, service));
+        // JSON HELPERS
+        let json_helpers = generate_json_functions(record_package);
+        let mut file = File::create(out.join("json").join("json.kt"))?;
+        file.write_all(json_helpers.as_bytes())?;
+
+        let result_type = generate_result_type(record_package);
+        let mut file = File::create(out.join("models").join("Result.kt"))?;
+        file.write_all(result_type.as_bytes())?;
+
+        for (_, record) in &module.records {
+            let content = generate_record(&record_package, record);
+            let mut file =
+                File::create(out.join("models").join(format!("{}.kt", record.name.value)))?;
+            file.write_all(content.as_bytes())?;
+        }
+
+        for (_, enum_value) in &module.enums {
+            let content = generate_enum(&record_package, enum_value);
+            let mut file = File::create(
+                out.join("models")
+                    .join(format!("{}.kt", enum_value.name.value)),
+            )?;
+            file.write_all(content.as_bytes())?;
+        }
+
+        for (_, service) in &module.services {
+            let content = generate_service(&record_package, service);
+            let mut file = File::create(
+                out.join("services")
+                    .join(format!("{}.kt", service.name.value)),
+            )?;
+            file.write_all(content.as_bytes())?;
+        }
     }
 
     Ok(())
@@ -46,7 +102,14 @@ fn generate_enum(package: &String, record: &Enum) -> String {
         format!("enum class {name} {{\n{variants}\n}}")
     };
 
-    format!("package {package}\n\n{doc_comment}{class}")
+    let imports = format!(
+        r#"
+import kotlinx.serialization.json.*
+import {package}.json.*
+    "#
+    );
+
+    format!("package {package}.models\n{imports}\n\n{doc_comment}{class}")
 }
 
 fn generate_service(package: &String, service: &Service) -> String {
@@ -54,26 +117,40 @@ fn generate_service(package: &String, service: &Service) -> String {
         .methods
         .iter()
         .map(|(_, method)| generate_method(package, &method))
-        .collect::<Vec<String>>()
         .join("\n\n");
 
+    let requests = service
+        .methods
+        .iter()
+        .filter(|(_, method)| !method.parameters.is_empty())
+        .map(|(_, method)| indent_lines("    ", generate_request(package, method)))
+        .join("\n\n");
+
+    let imports = format!(
+        r#"
+import io.ktor.http.*
+import io.ktor.server.application.*
+import io.ktor.server.request.*
+import io.ktor.server.response.*
+import io.ktor.server.routing.*
+import kotlinx.serialization.json.*
+import {package}.json.*
+import {package}.models.*
+    "#
+    );
+
     let name = service.name.value.clone();
-    let doc_comment = generate_doc_comment("    ", &service.comment);
+    let doc_comment = generate_doc_comment("", &service.comment);
     let companion_object = generate_companion_object(package, service);
-    format!("{doc_comment}interface {name} {{\n{methods}\n\n{companion_object}\n}}")
+    format!("package {package}.services\n{imports}\n\n{doc_comment}interface {name} {{\n{requests}\n\n{methods}\n\n{companion_object}\n}}")
 }
 
 fn generate_method(package: &String, method: &Method) -> String {
-    let params = method
-        .parameters
-        .iter()
-        .map(|param| {
-            let name = param.name.value.clone();
-            let type_ = generate_type_ref(package, &param.type_);
-            format!("{name}: {type_}")
-        })
-        .collect::<Vec<String>>()
-        .join(", ");
+    let request = if method.parameters.is_empty() {
+        "".to_string()
+    } else {
+        format!("request: {}", method.name.request_name())
+    };
 
     let return_type = method
         .return_type
@@ -83,7 +160,7 @@ fn generate_method(package: &String, method: &Method) -> String {
 
     let name = method.name.value.clone();
     let doc_comment = generate_doc_comment("    ", &method.comment);
-    format!("{doc_comment}    fun {name}({params}): {return_type}")
+    format!("{doc_comment}    fun {name}({request}): {return_type}")
 }
 
 fn generate_companion_object(record_package: &String, service: &Service) -> String {
@@ -105,9 +182,29 @@ fn generate_companion_object(record_package: &String, service: &Service) -> Stri
 fn generate_ktor_handler(_record_package: &String, service: &Service, method: &Method) -> String {
     let service_name = service.name.value.clone();
     let name = method.name.value.clone();
-    let request_name = format!("{}Request", method.name.capitalized());
-
-    let x = format!("    val data = call.receive<{request_name}>()");
+    let request_name = method.name.request_name();
+    let x = if method.parameters.is_empty() {
+        [
+            format!("    val result = service.{name}()"),
+            format!("    call.respondNullable(result)"),
+        ]
+        .join("\n")
+    } else {
+        [
+            format!("    val data = call.receiveNullable<JsonElement>()"),
+            format!("    var error: JsonElement? = null"),
+            format!(
+                "    val request = {request_name}.decode(data, required = true) {{ error = it }}"
+            ),
+            format!("    if (error != null) {{"),
+            format!("        call.respondNullable(HttpStatusCode.BadRequest, error)"),
+            format!("    }} else {{"),
+            format!("        val result = service.{name}(request!!)"),
+            format!("        call.respondNullable(result)"),
+            format!("    }}"),
+        ]
+        .join("\n")
+    };
 
     format!("post(\"/{service_name}/{name}\") {{\n{x}\n}}")
 }
@@ -175,8 +272,62 @@ fn generate_record(package: &String, record: &Record) -> String {
         format!("data class {name}(\n{properties}\n)",)
     };
 
+    let fields = record
+        .properties
+        .iter()
+        .map(|property| (&property.name, &property.type_))
+        .collect::<Vec<(&Name, &Type)>>();
+    let parse_json_fn = parse_json_object(&record.name.value, fields);
+
+    let companion_object = [
+        format!("    companion object {{"),
+        indent_lines("        ", parse_json_fn),
+        format!("    }}"),
+    ]
+    .join("\n");
+
+    let imports = format!(
+        r#"
+import kotlinx.serialization.json.*
+import {package}.json.*
+    "#
+    );
+
     let doc_comment = generate_doc_comment("", &record.comment);
-    format!("package {package}\n\n{doc_comment}{class}")
+    format!("package {package}.models\n{imports}\n\n{doc_comment}{class} {{\n\n{companion_object}\n\n}}")
+}
+
+fn generate_request(package: &String, method: &Method) -> String {
+    let request_name = method.name.request_name();
+    let properties = method
+        .parameters
+        .iter()
+        .map(|param| {
+            let name = &param.name.value;
+            let type_ref = generate_type_ref(package, &param.type_);
+            format!("    val {name}: {type_ref}")
+        })
+        .collect::<Vec<String>>()
+        .join(",\n");
+
+    let fields = method
+        .parameters
+        .iter()
+        .map(|property| (&property.name, &property.type_))
+        .collect::<Vec<(&Name, &Type)>>();
+
+    let parse_json_fn = parse_json_object(&method.name.request_name(), fields);
+
+    let companion_object = [
+        format!("    companion object {{"),
+        indent_lines("        ", parse_json_fn),
+        format!("    }}"),
+    ]
+    .join("\n");
+
+    let class = format!("data class {request_name}(\n{properties}\n)");
+
+    format!("{class} {{\n\n{companion_object}\n\n}}")
 }
 
 fn generate_type_ref(package: &String, type_: &Type) -> String {
@@ -235,13 +386,12 @@ fn indent_lines(indent: &str, value: String) -> String {
         .join("\n")
 }
 
-fn parse_json_object(name: &Name, fields: Vec<(&Name, &Type)>) -> String {
+fn parse_json_object(name: &String, fields: Vec<(&Name, &Type)>) -> String {
     let var_json = &"json".to_string();
-    let name = &name.value;
     let var_errors = &"errors".to_string();
     let parsing_fields = fields
         .iter()
-        .map(|(name, type_)| parse_json_field(&"value".to_string(), name, type_))
+        .map(|(name, type_)| parse_json_field(&"this".to_string(), name, type_))
         .collect::<Vec<String>>()
         .join("\n\n");
 
@@ -255,8 +405,8 @@ fn parse_json_object(name: &Name, fields: Vec<(&Name, &Type)>) -> String {
         .join(",\n");
 
     [
-        format!("inline fun parse({var_json}: JsonElement?, required: Boolean = true, error: (JsonElement) -> Unit): {name}? = "),
-        format!("    parseObject({var_json}, required, error) {{ value ->"),
+        format!("inline fun decode({var_json}: JsonElement?, required: Boolean = true, error: (JsonElement) -> Unit): {name}? = "),
+        format!("    decodeObject({var_json}, required, error) {{"),
         format!("        val {var_errors} = mutableMapOf<String, JsonElement>()"),
         indent_lines("        ", parsing_fields),
         "".to_string(),
@@ -265,7 +415,7 @@ fn parse_json_object(name: &Name, fields: Vec<(&Name, &Type)>) -> String {
         format!("            null"),
         format!("        }} else {{"),
         format!("            {name}("),
-        indent_lines("            ", constructor_fields),
+        indent_lines("                ", constructor_fields),
         format!("            )"),
         format!("        }}"),
         format!("    }}"),
@@ -287,38 +437,64 @@ where
 {
     match type_ {
         Type::String => [
-            format!("val {var} = parseString({var_expr}, required = {required}) {{"),
+            format!("val {var} = decodeString({var_expr}, required = {required}) {{"),
             format!("    {}", error("it".to_string())),
             format!("}}",),
         ]
         .join("\n"),
         Type::Int32 => [
-            format!("val {var} = parseInt({var_expr}, required = {required}) {{"),
+            format!("val {var} = decodeInt32({var_expr}, required = {required}) {{"),
             format!("    {}", error("it".to_string())),
             format!("}}",),
         ]
         .join("\n"),
         Type::Int64 => [
-            format!("val {var} = parseLong({var_expr}, required = {required}) {{"),
+            format!("val {var} = decodeInt64({var_expr}, required = {required}) {{"),
             format!("    {}", error("it".to_string())),
             format!("}}",),
         ]
         .join("\n"),
         Type::Boolean => [
-            format!("val {var} = parseBoolean({var_expr}, required = {required}) {{"),
+            format!("val {var} = decodeBoolean({var_expr}, required = {required}) {{"),
+            format!("    {}", error("it".to_string())),
+            format!("}}",),
+        ]
+        .join("\n"),
+        Type::Float32 => [
+            format!("val {var} = decodeFloat32({var_expr}, required = {required}) {{"),
+            format!("    {}", error("it".to_string())),
+            format!("}}",),
+        ]
+        .join("\n"),
+        Type::Float64 => [
+            format!("val {var} = decodeFloat64({var_expr}, required = {required}) {{"),
             format!("    {}", error("it".to_string())),
             format!("}}",),
         ]
         .join("\n"),
         Type::Option(type_) => parse_json(var, var_expr, false, type_, error),
         Type::Ref(name) => [
-            format!("val {var} = {name}.parse({var_expr}, required = {required}) {{"),
+            format!("val {var} = {name}.decode({var_expr}, required = {required}) {{"),
             format!("    {}", error("it".to_string())),
             format!("}}"),
         ]
         .join("\n"),
         _ => format!(""),
     }
+}
+
+fn generate_json_functions(package: &String) -> String {
+    let data = include_str!("kotlin/json.kt");
+    format!("package {package}.json\n\n{data}")
+}
+
+fn generate_result_type(package: &String) -> String {
+    let data = include_str!("kotlin/result.kt");
+    let imports = r#"
+import io.noobymatze.ruff.generated.json.*
+import kotlinx.serialization.json.*
+    "#;
+    format!("package {package}.models\n{imports}\n\n{data}")
 }
 
 #[cfg(test)]
@@ -332,7 +508,7 @@ mod tests {
         let record_name = Name::from_str("Greet");
 
         let parsing = parse_json_object(
-            &record_name,
+            &"Greet".to_string(),
             vec![
                 (&Name::from_str("test"), &Type::String),
                 (&Name::from_str("foo"), &Type::String),

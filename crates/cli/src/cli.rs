@@ -59,6 +59,8 @@ enum Lang {
         /// The output path of the resulting files
         #[arg(short, long)]
         output: Option<PathBuf>,
+        #[arg(short, long)]
+        package: String,
     },
 }
 
@@ -120,7 +122,7 @@ pub fn run(cli: Cli) -> Result<(), Error> {
             let print = output.is_none();
             match compiler::compile(Some(file.clone()), str) {
                 Ok(module) => {
-                    let cmd = match lang {
+                    let cmd = match &lang {
                         Lang::Rust { .. } => codegen::command::Command::Rust,
                         Lang::Ts { .. } => {
                             let options = codegen::command::TypescriptOptions {
@@ -129,7 +131,14 @@ pub fn run(cli: Cli) -> Result<(), Error> {
                             };
                             codegen::command::Command::Typescript(options)
                         }
-                        Lang::Kotlin { .. } => codegen::command::Command::Kotlin,
+                        Lang::Kotlin { package, .. } => {
+                            let options = codegen::command::KotlinOptions {
+                                print,
+                                package: package.clone(),
+                                output: output.clone(),
+                            };
+                            codegen::command::Command::Kotlin(options)
+                        }
                     };
 
                     codegen::generate(&module, &cmd)?;
