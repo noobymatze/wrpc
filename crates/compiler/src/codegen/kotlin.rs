@@ -155,12 +155,12 @@ fn generate_method(package: &String, method: &Method) -> String {
     let return_type = method
         .return_type
         .as_ref()
-        .map(|type_| generate_type_ref(package, &type_))
+        .map(|type_| format!(": {}", generate_type_ref(package, &type_)))
         .unwrap_or("".to_string());
 
     let name = method.name.value.clone();
     let doc_comment = generate_doc_comment("    ", &method.comment);
-    format!("{doc_comment}    fun {name}({request}): {return_type}")
+    format!("{doc_comment}    fun {name}({request}){return_type}")
 }
 
 fn generate_companion_object(record_package: &String, service: &Service) -> String {
@@ -183,14 +183,8 @@ fn generate_ktor_handler(_record_package: &String, service: &Service, method: &M
     let service_name = service.name.value.clone();
     let name = method.name.value.clone();
     let request_name = method.name.request_name();
-    let x = if method.parameters.is_empty() {
-        [
-            format!("    val result = service.{name}()"),
-            format!("    call.respondNullable(result)"),
-        ]
-        .join("\n")
-    } else {
-        [
+    let x = match (method.parameters.is_empty(), &method.return_type) {
+        (false, Some(return_type)) => [
             format!("    val data = call.receiveNullable<JsonElement>()"),
             format!("    var error: JsonElement? = null"),
             format!(
@@ -200,10 +194,36 @@ fn generate_ktor_handler(_record_package: &String, service: &Service, method: &M
             format!("        call.respondNullable(HttpStatusCode.BadRequest, error)"),
             format!("    }} else {{"),
             format!("        val result = service.{name}(request!!)"),
-            format!("        call.respondNullable(result)"),
+            format!(
+                "        call.respondNullable({})",
+                encode_json(&"result".to_string(), return_type)
+            ),
             format!("    }}"),
         ]
-        .join("\n")
+        .join("\n"),
+        (false, None) => [
+            format!("    val data = call.receiveNullable<JsonElement>()"),
+            format!("    var error: JsonElement? = null"),
+            format!(
+                "    val request = {request_name}.decode(data, required = true) {{ error = it }}"
+            ),
+            format!("    if (error != null) {{"),
+            format!("        call.respondNullable(HttpStatusCode.BadRequest, error)"),
+            format!("    }} else {{"),
+            format!("        service.{name}(request!!)"),
+            format!("        call.respond(HttpStatusCode.NoContent)"),
+            format!("    }}"),
+        ]
+        .join("\n"),
+        (true, None) => [format!("        service.{name}()")].join("\n"),
+        (true, Some(return_type)) => [
+            format!("    val result = service.{name}()"),
+            format!(
+                "    call.respondNullable({})",
+                encode_json(&"result".to_string(), return_type)
+            ),
+        ]
+        .join("\n"),
     };
 
     format!("post(\"/{service_name}/{name}\") {{\n{x}\n}}")
@@ -277,7 +297,8 @@ fn generate_record(package: &String, record: &Record) -> String {
         .iter()
         .map(|property| (&property.name, &property.type_))
         .collect::<Vec<(&Name, &Type)>>();
-    let parse_json_fn = parse_json_object(&record.name.value, fields);
+    let parse_json_fn = parse_json_object(&record.name.value, &fields);
+    let encode_json_fn = encode_json_object(&record.name.value, &fields);
 
     let companion_object = [
         format!("    companion object {{"),
@@ -294,7 +315,7 @@ import {package}.json.*
     );
 
     let doc_comment = generate_doc_comment("", &record.comment);
-    format!("package {package}.models\n{imports}\n\n{doc_comment}{class} {{\n\n{companion_object}\n\n}}")
+    format!("package {package}.models\n{imports}\n\n{doc_comment}{class} {{\n\n{encode_json_fn}\n\n{companion_object}\n\n}}")
 }
 
 fn generate_request(package: &String, method: &Method) -> String {
@@ -316,7 +337,7 @@ fn generate_request(package: &String, method: &Method) -> String {
         .map(|property| (&property.name, &property.type_))
         .collect::<Vec<(&Name, &Type)>>();
 
-    let parse_json_fn = parse_json_object(&method.name.request_name(), fields);
+    let parse_json_fn = parse_json_object(&method.name.request_name(), &fields);
 
     let companion_object = [
         format!("    companion object {{"),
@@ -325,7 +346,12 @@ fn generate_request(package: &String, method: &Method) -> String {
     ]
     .join("\n");
 
-    let class = format!("data class {request_name}(\n{properties}\n)");
+    let modifier = if method.parameters.len() == 1 {
+        "@JvmInline\nvalue"
+    } else {
+        "data"
+    };
+    let class = format!("{modifier} class {request_name}(\n{properties}\n)");
 
     format!("{class} {{\n\n{companion_object}\n\n}}")
 }
@@ -386,7 +412,7 @@ fn indent_lines(indent: &str, value: String) -> String {
         .join("\n")
 }
 
-fn parse_json_object(name: &String, fields: Vec<(&Name, &Type)>) -> String {
+fn parse_json_object(name: &String, fields: &Vec<(&Name, &Type)>) -> String {
     let var_json = &"json".to_string();
     let var_errors = &"errors".to_string();
     let parsing_fields = fields
@@ -429,6 +455,51 @@ fn parse_json_field(var_json: &String, name: &Name, type_: &Type) -> String {
     parse_json(name, &var_expr, true, type_, |error| {
         format!("errors[\"{name}\"] = {error}")
     })
+}
+
+fn encode_json_object(name: &String, fields: &Vec<(&Name, &Type)>) -> String {
+    let parsing_fields = fields
+        .iter()
+        .map(|(name, type_)| encode_json_field(&name.value, &name.value, type_))
+        .join("\n");
+
+    [
+        format!("fun encode(): JsonElement = buildJsonObject {{ "),
+        indent_lines("    ", parsing_fields),
+        format!("}}"),
+    ]
+    .join("\n")
+}
+
+fn encode_json_field(name: &String, var_prop: &String, type_: &Type) -> String {
+    format!("put(\"{name}\", {})", encode_json(var_prop, type_))
+}
+
+fn encode_json(var_expr: &String, type_: &Type) -> String {
+    match type_ {
+        Type::String => var_expr.clone(),
+        Type::Boolean => var_expr.clone(),
+        Type::Int32 => var_expr.clone(),
+        Type::Int64 => var_expr.clone(),
+        Type::Float32 => var_expr.clone(),
+        Type::Float64 => var_expr.clone(),
+        Type::Map(_, _) => "".to_string(),
+        Type::Result(error_type, ok_type) => format!(
+            "{var_expr}.encode(encodeOk = {{ {} }}, encodeErr = {{ {} }})",
+            encode_json(&"it".to_string(), ok_type),
+            encode_json(&"it".to_string(), error_type)
+        ),
+        Type::List(type_) => format!(
+            "buildJsonArray {{ {var_expr}.forEach {{ add({}) }} }}",
+            encode_json(&"it".to_string(), type_)
+        ),
+        Type::Set(type_) => format!(
+            "encodeArray({var_expr}) {{ {} }}",
+            encode_json(&"it".to_string(), type_)
+        ),
+        Type::Option(type_) => encode_json(&format!("{var_expr}?"), type_),
+        Type::Ref(name) => format!("{var_expr}.encode()"),
+    }
 }
 
 fn parse_json<F>(var: &String, var_expr: &String, required: bool, type_: &Type, error: F) -> String
@@ -509,7 +580,7 @@ mod tests {
 
         let parsing = parse_json_object(
             &"Greet".to_string(),
-            vec![
+            &vec![
                 (&Name::from_str("test"), &Type::String),
                 (&Name::from_str("foo"), &Type::String),
                 (&Name::from_str("age"), &Type::Option(Box::new(Type::Int32))),

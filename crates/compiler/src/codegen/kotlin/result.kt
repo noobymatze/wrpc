@@ -7,28 +7,29 @@ sealed interface Result<out E, out T> {
     @JvmInline
     value class Err<out E>(val error: E): Result<E, Nothing>
 
-    companion object {
-
-        fun <E, T> Result<E, T>.encode(
-            encodeOk: JsonObjectBuilder.() -> Unit,
-            encodeErr: JsonObjectBuilder.() -> Unit
-        ): JsonObject = when (this) {
-            is Ok -> buildJsonObject {
-                put("type_", "Ok")
-                encodeOk()
-            }
-            is Err -> buildJsonObject {
-                put("type_", "Err")
-                encodeErr()
-            }
+    fun encode(
+        encodeOk: (T) -> JsonElement?,
+        encodeErr: (E) -> JsonElement?,
+    ): JsonObject = when (this) {
+        is Ok -> buildJsonObject {
+            put("type_", "Ok")
+            put("value", encodeOk(value) ?: JsonNull)
         }
+        is Err -> buildJsonObject {
+            put("type_", "Err")
+            put("error", encodeErr(error) ?: JsonNull)
+        }
+    }
+
+
+    companion object {
 
         inline fun <E, T> decode(
             element: JsonElement?,
             required: Boolean,
             error: (JsonElement) -> Unit,
-            decodeOk: (JsonObject) -> T,
-            decodeErr: (JsonObject) -> E,
+            decodeOk: (JsonElement?) -> T,
+            decodeErr: (JsonElement?) -> E,
         ): Result<E, T>? {
             if (element == null || element == JsonNull) {
                 if (required) error(required())
@@ -50,8 +51,8 @@ sealed interface Result<out E, out T> {
             }
 
             return when (discriminator.content) {
-                "Ok" -> Result.Ok(decodeOk(element))
-                "Err" -> Result.Err(decodeErr(element))
+                "Ok" -> Ok(decodeOk(element["value"]))
+                "Err" -> Err(decodeErr(element["error"]))
                 else -> {
                     error(buildJsonObject {
                         put("type_", "BadDiscriminator")

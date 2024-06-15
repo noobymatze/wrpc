@@ -60,8 +60,8 @@ fn generate_models(package: &String, module: &Module) -> String {
  * type {@link E}.
  */
 export type Result<T, E>
-    = { type: "Ok"; value: T; }
-    | { type: "Err"; error: E; };
+    = { type_: "Ok"; value: T; }
+    | { type_: "Err"; error: E; };
     "#;
 
     format!("{result_type}\n{records}\n\n{enums}\n")
