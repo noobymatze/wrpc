@@ -162,7 +162,6 @@ fn generate_enum(package: &String, record: &Enum) -> String {
         .variants
         .iter()
         .map(|variant| generate_variant(package, &record.name, variant, is_sealed))
-        .collect::<Vec<String>>()
         .join("\n");
 
     let doc_comment = generate_doc_comment("", &record.comment);
@@ -216,7 +215,6 @@ fn generate_client(_package: &String, module: &Module) -> String {
             let service_client = service.name.value.clone();
             format!("    {name}: {service_client},")
         })
-        .collect::<Vec<String>>()
         .join("\n");
     let comment = generate_doc_comment("", &Some("Represents a Client, which can be used to work with the corresponding server instance.".to_string()));
     format!("{comment}export type Client = {{\n{client_type}\n}}")
@@ -227,14 +225,12 @@ fn generate_service_interface(package: &String, service: &Service) -> String {
         .methods
         .iter()
         .map(|(_, method)| generate_method_signature(package, &method))
-        .collect::<Vec<String>>()
         .join("\n");
 
     let requests = service
         .methods
         .iter()
         .map(|(_, method)| generate_request(package, &method))
-        .collect::<Vec<String>>()
         .join("\n\n");
 
     let comment = generate_doc_comment("", &service.comment);
@@ -277,12 +273,10 @@ fn generate_service(package: &String, module: &Module) -> String {
                 .methods
                 .iter()
                 .map(|(_, method)| generate_method(package, service, &method))
-                .collect::<Vec<String>>()
                 .join(",\n");
 
             format!("        {name}: {{\n{methods}\n        }}")
         })
-        .collect::<Vec<String>>()
         .join(",\n");
 
     format!(
@@ -296,7 +290,6 @@ fn generate_request(package: &String, method: &Method) -> String {
         .parameters
         .iter()
         .map(|property| generate_param_property("    ", package, property))
-        .collect::<Vec<String>>()
         .join("\n");
 
     format!("export type {request_name} = {{\n{properties}\n}}")
@@ -327,7 +320,6 @@ fn generate_doc_comment(indent: &str, comment: &Option<String>) -> String {
             let content = comment
                 .split("\n")
                 .map(|line| format!("{indent} * {line}"))
-                .collect::<Vec<String>>()
                 .join("\n");
             format!("{indent}/**\n{content}\n{indent} */\n")
         }

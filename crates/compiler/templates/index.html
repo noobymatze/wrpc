@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <title>Docs</title>
+    <!-- HTML in your document's head -->
+    <link rel="preconnect" href="https://rsms.me/">
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+
+    <style>
+        /* CSS */
+        :root {
+            font-family: Inter, sans-serif;
+            font-feature-settings: 'liga' 1, 'calt' 1;
+
+            --sky-600: #0284c7;
+
+            --green-700: #15803d;
+
+            --zinc-100: #f4f4f5;
+
+            --fuchsia-800: #86198f;
+        }
+
+        @supports (font-variation-settings: normal) {
+            :root {
+                font-family: InterVariable, sans-serif;
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            padding: 0;
+            margin: 0;
+            color: #333;
+        }
+
+
+        article {
+            margin: 0 auto;
+            max-width: 760px;
+            padding: 20px;
+        }
+
+        ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .method {
+            background: var(--zinc-100);
+            padding: 0.5rem;
+            border-left: 3px solid #71717a;
+            font-weight: bold;
+        }
+
+        .code {
+            background: var(--zinc-100);
+            padding: 0.5rem;
+        }
+
+        .decl {
+            margin-top: 0.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .type {
+            color: #ad448e;
+        }
+
+        .type.type--custom {
+            color: var(--green-700);
+        }
+
+        .keyword {
+            color: var(--fuchsia-800);
+            /*#f97316;*/
+        }
+    </style>
+</head>
+
+<body>
+    <article>
+        <section>
+            <h4 id="services" style="color: #999">Services</h4>
+            <ul>
+                {% for service in module.get_sorted_services() %}
+                <li>
+                    <h4 id="{{ service.name.value }}" style="color: #6b21a8;">
+                        {{ service.name.value }}</h4>
+                    {% if let Some(comment) = service.comment %}
+                    <div>{{ self::md_to_html(comment)|safe }}</div>
+                    {% else %}
+                    {% endif %}
+                    <ul>
+                        {% for (_, method) in service.methods %}
+                        <li style="padding: 0.25rem 0;">
+                            <pre class="method"
+                                style="white-space: pre-line;"><span>{{ method.name.value }}({{self::render_parameters(method.parameters)|safe}}){{self::render_return_type(method.return_type)|safe}}</span></pre>
+                            {% if let Some(comment) = method.comment %}
+                            <div>{{ self::md_to_html(comment)|safe }}</div>
+                            {% else %}
+                            {% endif %}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </li>
+                {% endfor %}
+            </ul>
+        </section>
+        <section style="border-top: 1px solid #e4e4e7">
+            <h4 id="data" style="color: #999">Types</h4>
+            <ul>
+                {% for record in module.get_sorted_records() %}
+                <li class="decl">
+                    <h4 id="{{ record.name.value }}" style="color: var(--green-700)">{{ record.name.value }}</h4>
+                    <pre class="code">{{ self::render_record(record)|safe }}</pre>
+                    {% if let Some(comment) = record.comment %}
+                    <div>{{ self::md_to_html(comment)|safe }}</div>
+                    {% else %}
+                    {% endif %}
+                </li>
+                {% endfor %}
+                {% for record in module.get_sorted_enums() %}
+                <li class="decl">
+                    <h4 id="{{ record.name.value }}" style="color: var(--green-700)">{{ record.name.value }}</h4>
+                    <pre class="code">{{ self::render_enum(record)|safe }}</pre>
+                    {% if let Some(comment) = record.comment %}
+                    <div>{{ self::md_to_html(comment)|safe }}</div>
+                    {% else %}
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </section>
+    </article>
+</body>
+
+</html>

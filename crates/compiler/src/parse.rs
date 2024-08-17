@@ -340,7 +340,19 @@ where
                 }
             }
         }
-        Ok(Type { name, variables })
+        let type_ = Type { name, variables };
+        let questionmark = self.optional(Token::Questionmark);
+        if let Some((region, _)) = questionmark {
+            Ok(Type {
+                name: Name {
+                    region: region,
+                    value: "Option".to_string(),
+                },
+                variables: vec![type_],
+            })
+        } else {
+            Ok(type_)
+        }
     }
 
     fn parse_annotations(&mut self) -> Result<Vec<Annotation>, syntax::Annotation> {
@@ -412,6 +424,15 @@ where
         }
     }
 
+    fn optional(&mut self, expected: Token) -> Option<(Region, Token)> {
+        match self.peek() {
+            Some(token) if token == &expected => self
+                .advance()
+                .map(|x| x.expect("Since it is a token, there cannot be any error")),
+            _ => None,
+        }
+    }
+
     fn expect_token(&mut self, token: Token) -> Result<(), Position> {
         match self.advance() {
             Some(Ok((_, tok))) if tok == token => Ok(()),
@@ -426,6 +447,22 @@ where
             Some(Ok((region, Token::Identifier(name)))) => Ok(Name {
                 region,
                 value: name,
+            }),
+            Some(Ok((region, Token::Data))) => Ok(Name {
+                region,
+                value: "data".to_string(),
+            }),
+            Some(Ok((region, Token::Service))) => Ok(Name {
+                region,
+                value: "service".to_string(),
+            }),
+            Some(Ok((region, Token::Def))) => Ok(Name {
+                region,
+                value: "def".to_string(),
+            }),
+            Some(Ok((region, Token::Enum))) => Ok(Name {
+                region,
+                value: "enum".to_string(),
             }),
             Some(Ok((region, _))) => Err(syntax::Name::ExpectedName(
                 region.start.line,

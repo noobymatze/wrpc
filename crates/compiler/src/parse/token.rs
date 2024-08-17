@@ -16,6 +16,7 @@ pub enum Token {
     Service,
     Enum,
     Def,
+    Questionmark,
     Comment(String),
     Identifier(String),
     Symbol(Vec<String>, String),

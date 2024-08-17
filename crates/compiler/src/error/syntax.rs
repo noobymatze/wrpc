@@ -226,19 +226,28 @@ impl Decl {
                     alloc.snippet(&Region::new(*line, *col, *line, *col)),
                 ]),
             },
-            Decl::BadData(Data::BadName(Name::BadToken(_))) => Report {
+            Decl::BadData(Data::BadName(Name::BadToken(token))) => Report {
                 title: "DATA DECLARATION".to_owned(),
-                doc: alloc.stack([alloc.reflow("Test")]),
+                doc: alloc.stack([
+                    alloc.reflow("I found a token, that I could not understand. "),
+                    alloc.reflow(format!("{:?}", token)),
+                    ]),
             },
 
-            Decl::BadData(Data::BadName(Name::ExpectedName(_, _))) => Report {
+            Decl::BadData(Data::BadName(Name::ExpectedName(line, col))) => Report {
                 title: "DATA DECLARATION".to_owned(),
-                doc: alloc.stack([alloc.reflow("Test")]),
+                doc: alloc.stack([
+                    alloc.reflow("I expected a name here"),
+                    alloc.snippet_single(*line, *col),
+                ]),
             },
-            Decl::BadData(Data::BadProperty(Property::MissingComma(_, _))) => Report {
+            Decl::BadData(Data::BadProperty(Property::MissingComma(line, col))) => Report {
                 title: "MISSING PROPERTY NAME".to_string(),
                 //region: region.clone(),
-                doc: alloc.stack([alloc.reflow("I am missing a comma in a ")]),
+                doc: alloc.stack([
+                    alloc.reflow("I am missing a comma in a property declaration:"),
+                    alloc.snippet(&Region::line(*line, *col, *col)),
+                ]),
             },
             //Decl::MissingPropertySeparator(region) => Report {
             //    title: "MISSING PROPERTY SEPARATOR".to_string(),
@@ -272,10 +281,10 @@ impl Decl {
                     alloc.reflow(format!("I found a bad annotation: `{annotation:?}`")),
                 ]),
             },
-            Decl::BadData(_) => Report {
+            Decl::BadData(data) => Report {
                 title: "BAD DATA DECLARATION".to_string(),
                 //region: region.clone(),
-                doc: alloc.stack([alloc.reflow("I am missing a comma in a ")]),
+                doc: alloc.stack([alloc.reflow(format!("The following error occurred: {:?}", data))]),
             },
             Decl::BadService(_) => Report {
                 title: "BAD SERVICE DECLARATION".to_owned(),

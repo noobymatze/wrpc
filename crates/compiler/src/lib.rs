@@ -7,6 +7,7 @@ use crate::canonicalize::canonicalize;
 pub mod ast;
 pub mod canonicalize;
 pub mod codegen;
+pub mod docs;
 pub mod error;
 mod parse;
 pub mod reporting;

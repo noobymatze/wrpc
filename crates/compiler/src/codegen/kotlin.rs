@@ -1,3 +1,5 @@
+use crate::ast::canonical::Annotation;
+use crate::ast::constraints::Constraint;
 use crate::ast::{
     canonical::{Enum, Method, Module, Property, Record, Service, Type, Variant},
     source::Name,
@@ -96,7 +98,14 @@ fn generate_enum(package: &String, record: &Enum) -> String {
 
     let class = if is_sealed {
         let name = record.name.value.clone();
-        format!("sealed class {name} {{\n\n{variants}\n}}")
+        let parse_json_fn = parse_json_enum_object(&record.name.value, &record.variants);
+        let companion_object = [
+            format!("    companion object {{"),
+            indent_lines("        ", parse_json_fn),
+            format!("    }}"),
+        ]
+        .join("\n");
+        format!("sealed class {name} {{\n\n{variants}\n\n{companion_object}\n}}")
     } else {
         let name = record.name.value.clone();
         format!("enum class {name} {{\n{variants}\n}}")
@@ -288,6 +297,33 @@ fn generate_record(package: &String, record: &Record) -> String {
             .collect::<Vec<String>>()
             .join("\n");
 
+        let validation = record
+            .properties
+            .iter()
+            .flat_map(|property| {
+                property
+                    .annotations
+                    .iter()
+                    .filter_map(|annotation| match annotation {
+                        Annotation::Check(constraints) => {
+                            Some(render(&Constraint::And(constraints.clone())))
+                        }
+                        Annotation::Custom(_) => None,
+                    })
+                    .map(|constraint| (&property.name, constraint))
+            })
+            .map(|(name, constraint)| {
+                [
+                    format!("if (!{constraint}) {{"),
+                    format!("    error()"),
+                    format!("}}"),
+                ]
+                .join("\n")
+            })
+            .join("\n");
+
+        println!("{validation}");
+
         let name = record.name.value.clone();
         format!("data class {name}(\n{properties}\n)",)
     };
@@ -409,6 +445,72 @@ fn indent_lines(indent: &str, value: String) -> String {
         .split("\n")
         .map(|line| format!("{indent}{line}"))
         .collect::<Vec<String>>()
+        .join("\n")
+}
+
+fn parse_json_enum_object(name: &String, variants: &Vec<Variant>) -> String {
+    let var_json = &"json".to_string();
+    let var_errors = &"errors".to_string();
+    let parsing_fields = variants
+        .iter()
+        .map(|variant| {
+            let name = &variant.name.value;
+            if variant.properties.is_empty() {
+                format!("    \"{name}\" -> {name}")
+            } else {
+                let fields = variant
+                    .properties
+                    .iter()
+                    .map(|property| {
+                        parse_json_field(&"this".to_string(), &property.name, &property.type_)
+                    })
+                    .join("\n");
+
+                let constructor_fields = variant
+                    .properties
+                    .iter()
+                    .map(|property| match &property.type_ {
+                        Type::Option(type_) => {
+                            format!("{} = {}", &property.name.value, property.name.value)
+                        }
+                        _ => format!("{} = {}!!", property.name.value, property.name.value),
+                    })
+                    .join(",\n");
+
+                [
+                    format!("    \"{name}\" -> {{"),
+                    indent_lines("        ", fields),
+                    "".to_string(),
+                    format!("        if ({var_errors}.isNotEmpty()) {{"),
+                    format!("            error(JsonObject({var_errors}))"),
+                    format!("            null"),
+                    format!("        }} else {{"),
+                    format!("            {name}("),
+                    indent_lines("                ", constructor_fields),
+                    format!("            )"),
+                    format!("        }}"),
+                    format!("    }}"),
+                ]
+                .join("\n")
+            }
+        })
+        .collect::<Vec<String>>()
+        .join("\n\n");
+
+    [
+        format!("inline fun decode({var_json}: JsonElement?, required: Boolean = true, error: (JsonElement) -> Unit): {name}? = "),
+        format!("    decodeObject({var_json}, required, error) {{"),
+        format!("        val {var_errors} = mutableMapOf<String, JsonElement>()"),
+        format!("        val type = decodeString(this[\"type_\"], required = true) {{ {var_errors}[\"type_\"] = expected(\"STRING\", it) }}"),
+        format!("        when (type) {{"),
+        indent_lines("        ", parsing_fields),
+        format!("            else -> {{"),
+        format!("                error(expected(\"DISCRIMINATOR\", JsonPrimitive(type)))"),
+        format!("                null"),
+        format!("            }}"),
+        format!("        }}"),
+        format!("    }}"),
+    ]
         .join("\n")
 }
 
@@ -568,26 +670,149 @@ import kotlinx.serialization.json.*
     format!("package {package}.models\n{imports}\n\n{data}")
 }
 
+fn validate_value(record: &Record) -> String {
+    "".to_string()
+}
+
+fn render(constraint: &Constraint) -> String {
+    match constraint {
+        Constraint::Lt(constraints) => {
+            if constraints.len() <= 1 {
+                "true".to_string()
+            } else {
+                let result = constraints
+                    .iter()
+                    .map(|constraint| render(constraint))
+                    .collect::<Vec<String>>();
+                parenthesize(&result, "<")
+            }
+        }
+        Constraint::Eq(constraints) => {
+            if constraints.len() <= 1 {
+                "true".to_string()
+            } else {
+                let result = constraints
+                    .iter()
+                    .map(|constraint| render(constraint))
+                    .collect::<Vec<String>>();
+                parenthesize(&result, "==")
+            }
+        }
+        Constraint::Le(constraints) => {
+            if constraints.len() <= 1 {
+                "true".to_string()
+            } else {
+                let result = constraints
+                    .iter()
+                    .map(|constraint| render(constraint))
+                    .collect::<Vec<String>>();
+                parenthesize(&result, "<=")
+            }
+        }
+        Constraint::Gt(constraints) => {
+            if constraints.len() <= 1 {
+                "true".to_string()
+            } else {
+                let result = constraints
+                    .iter()
+                    .map(|constraint| render(constraint))
+                    .collect::<Vec<String>>();
+                parenthesize(&result, ">")
+            }
+        }
+        Constraint::Ge(constraints) => {
+            if constraints.len() <= 1 {
+                "true".to_string()
+            } else {
+                let result = constraints
+                    .iter()
+                    .map(|constraint| render(constraint))
+                    .collect::<Vec<String>>();
+                parenthesize(&result, ">=")
+            }
+        }
+        Constraint::Or(constraints) => {
+            let x = constraints
+                .iter()
+                .map(|constraint| render(constraint))
+                .join(" || ");
+            format!("({x})")
+        }
+        Constraint::And(constraints) => {
+            let x = constraints
+                .iter()
+                .map(|constraint| render(constraint))
+                .join(" && ");
+            format!("({x})")
+        }
+        Constraint::Xor(constraints) => {
+            let x = constraints
+                .iter()
+                .map(|constraint| render(constraint))
+                .join(" xor ");
+            format!("({x})")
+        }
+        Constraint::Len(constraint) => {
+            let value = render(constraint);
+            format!("{value}.size")
+        }
+        Constraint::Number(value) => format!("{value}"),
+        Constraint::String(value) => format!("\"{value}\""),
+        Constraint::Boolean(value) => value.to_string(),
+        Constraint::Map(values) => "".to_string(),
+        Constraint::Ref(name) => name.clone(),
+    }
+}
+
+fn parenthesize(values: &Vec<String>, op: &str) -> String {
+    // (= x 5 6 8)
+    // => (((x == 5) == 6) == 8)
+    let mut stack = values.iter().rev().cloned().collect::<Vec<String>>();
+    while stack.len() > 1 {
+        let a = stack.pop();
+        let b = stack.pop();
+        if let (Some(a), Some(b)) = (a, b) {
+            stack.push(format!("({a} {op} {b})"));
+        }
+    }
+
+    stack.pop().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use crate::ast::canonical::Type;
+    use crate::ast::constraints::Constraint;
     use crate::ast::source::Name;
-    use crate::codegen::kotlin::{parse_json, parse_json_field, parse_json_object};
+    use crate::codegen::kotlin::{
+        parenthesize, parse_json, parse_json_field, parse_json_object, render,
+    };
 
     #[test]
     fn test() {
-        let record_name = Name::from_str("Greet");
+        let result = render(&Constraint::Or(vec![
+            Constraint::And(vec![
+                Constraint::Eq(vec![
+                    Constraint::Ref("country".to_string()),
+                    Constraint::String("DE".to_string()),
+                ]),
+                Constraint::Eq(vec![
+                    Constraint::Ref("zipcode".to_string()),
+                    Constraint::Number(5.0),
+                ]),
+            ]),
+            Constraint::And(vec![
+                Constraint::Eq(vec![
+                    Constraint::Ref("country".to_string()),
+                    Constraint::String("CH".to_string()),
+                ]),
+                Constraint::Eq(vec![
+                    Constraint::Ref("zipcode".to_string()),
+                    Constraint::Number(4.0),
+                ]),
+            ]),
+        ]));
 
-        let parsing = parse_json_object(
-            &"Greet".to_string(),
-            &vec![
-                (&Name::from_str("test"), &Type::String),
-                (&Name::from_str("foo"), &Type::String),
-                (&Name::from_str("age"), &Type::Option(Box::new(Type::Int32))),
-                (&Name::from_str("person"), &Type::Ref("Person".to_string())),
-            ],
-        );
-
-        println!("{parsing}",);
+        println!("{result}",);
     }
 }

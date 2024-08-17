@@ -8,3 +8,5 @@ edition = "2021"
 [dependencies]
 clap = { version = "4.5.3", features = ["derive"] }
 compiler = { path = "../compiler" }
+server = { path = "../server" }
+tokio = { version = "1.35.1", features = ["full"] }

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::ast::source::Name;
 use crate::reporting::Region;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use super::constraints::Constraint;
@@ -37,6 +38,30 @@ impl Module {
             .get(service_name.into().as_str())
             .map(|service| service.methods.get(method_name.into().as_str()))
             .flatten()
+    }
+
+    pub fn get_sorted_services(&self) -> Vec<&Service> {
+        self.services
+            .iter()
+            .map(|(_, value)| value)
+            .sorted_by_key(|x| x.name.value.clone())
+            .collect()
+    }
+
+    pub fn get_sorted_enums(&self) -> Vec<&Enum> {
+        self.enums
+            .iter()
+            .map(|(_, value)| value)
+            .sorted_by_key(|x| x.name.value.clone())
+            .collect()
+    }
+
+    pub fn get_sorted_records(&self) -> Vec<&Record> {
+        self.records
+            .iter()
+            .map(|(_, value)| value)
+            .sorted_by_key(|x| x.name.value.clone())
+            .collect()
     }
 }
 

@@ -139,6 +139,10 @@ impl<T: Iterator<Item = char>> Lexer<T> {
                 Context::Normal => self.emit(Token::Colon),
                 Context::Annotation(_) => self.consume_keyword(c)?,
             },
+            '?' => match self.context {
+                Context::Normal => self.emit(Token::Questionmark),
+                Context::Annotation(_) => self.consume_symbol(c)?,
+            },
             '/' => match self.context {
                 Context::Normal => self.consume_comment()?,
                 Context::Annotation(_) => self.consume_symbol(c)?,

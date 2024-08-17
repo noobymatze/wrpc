@@ -15,7 +15,12 @@ pub struct Cli {
 
 #[derive(Parser, Debug)]
 enum Command {
-    // Does stuff
+    /// Start a server that can be used a a mock server and displays documentation.
+    #[command()]
+    Server {
+        #[arg()]
+        file: PathBuf,
+    },
     #[command()]
     Check {
         #[arg()]
@@ -79,8 +84,22 @@ pub fn parse() -> Cli {
     Cli::parse()
 }
 
-pub fn run(cli: Cli) -> Result<(), Error> {
+pub async fn run(cli: Cli) -> Result<(), Error> {
     match cli.command {
+        Command::Server { file } => {
+            let result = fs::read_to_string(&file)?;
+            let str = result.as_str();
+            match compiler::compile(Some(file.clone()), str) {
+                Ok(module) => server::run(&module).await,
+
+                Err(wrpc::Error::BadSyntax(errors)) => {
+                    render_errors(&file, str, errors);
+                }
+                Err(wrpc::Error::BadCanonicalization(error)) => {
+                    println!("Bad canonicalization happened: {error:?}");
+                }
+            }
+        }
         Command::Check { file } => {
             let result = fs::read_to_string(&file)?;
             let str = result.as_str();
