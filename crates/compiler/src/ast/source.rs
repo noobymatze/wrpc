@@ -24,6 +24,7 @@ pub struct Data {
     pub doc_comment: Option<String>,
     pub name: Name,
     pub properties: Vec<Property>,
+    pub type_variables: Vec<Name>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -40,6 +41,7 @@ pub struct Enum {
     pub doc_comment: Option<String>,
     pub name: Name,
     pub variants: Vec<Variant>,
+    pub type_variables: Vec<Name>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -92,15 +94,6 @@ pub struct Name {
     pub value: String,
 }
 
-impl Name {
-    pub fn from_str(value: &str) -> Self {
-        Name {
-            region: Region::new(0, 0, 0, 0),
-            value: value.to_string(),
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Annotation {
     pub expr: Expr,
@@ -140,6 +133,13 @@ impl Display for Expr {
 }
 
 impl Name {
+    pub fn from_str(value: &str) -> Self {
+        Name {
+            region: Region::new(0, 0, 0, 0),
+            value: value.to_string(),
+        }
+    }
+
     pub fn uncapitalized(&self) -> String {
         let mut c = self.value.chars();
         match c.next() {

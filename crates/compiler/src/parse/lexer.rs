@@ -25,11 +25,11 @@ enum Context {
 /// Since the wRPC language embeds [edn](https://github.com/edn-format/edn)
 /// for its annotation meta language and the rules for lexing
 /// are different in that context, the lexer switches the
-/// state to [Context::Edn] upon encountering a Hash `#`
+/// state to [Context::Annotation] upon encountering a Hash `#`
 /// in [Context::Normal] mode.
 ///
 /// By keeping track of the number of open parenthesis, we
-/// know when to exit [Context::Edn] mode. If the parenthesis
+/// know when to exit [Context::Annotation] mode. If the parenthesis
 /// are unbalanced, we have a problem, because currently the
 /// lexer has no way of being recovered.
 struct Lexer<T: Iterator<Item = char>> {

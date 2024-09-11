@@ -59,7 +59,7 @@ pub fn render_type(type_: &Type) -> String {
         Type::List(value) => format!("<span class=\"type\">List</span><{}>", render_type(value)),
         Type::Set(_) => "Set".to_string(),
         Type::Option(value) => format!("{}?", render_type(value)),
-        Type::Ref(name) => format!(
+        Type::Ref(name, _) => format!(
             "<a href=\"#{}\" class=\"type type--custom\">{}</a>",
             name, name
         ),
@@ -113,6 +113,6 @@ pub fn render_enum(record: &Enum) -> String {
 
 /// Render the
 pub fn render(module: &Module) -> String {
-    let hello = DocTemplate { module: module };
-    hello.render().unwrap()
+    let doc = DocTemplate { module: module };
+    doc.render().unwrap()
 }

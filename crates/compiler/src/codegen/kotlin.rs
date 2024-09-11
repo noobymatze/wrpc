@@ -11,6 +11,9 @@ use std::path::PathBuf;
 use std::string::ToString;
 use std::{fs, io};
 
+const OPEN: &'static str = "{";
+const CLOSE: &'static str = "}";
+
 #[derive(Debug)]
 pub struct Options {
     pub print: bool,
@@ -25,7 +28,7 @@ pub fn generate_kotlin_server(module: &Module, options: &Options) -> Result<(), 
         println!("{}", generate_json_functions(record_package));
         println!("{}", generate_result_type(record_package));
         for (_, record) in &module.records {
-            println!("{}", generate_record(&record_package, record));
+            println!("{}", generate_record(&record_package, record, true));
         }
 
         for (_, enum_value) in &module.enums {
@@ -53,7 +56,7 @@ pub fn generate_kotlin_server(module: &Module, options: &Options) -> Result<(), 
         file.write_all(result_type.as_bytes())?;
 
         for (_, record) in &module.records {
-            let content = generate_record(&record_package, record);
+            let content = generate_record(&record_package, record, true);
             let mut file =
                 File::create(out.join("models").join(format!("{}.kt", record.name.value)))?;
             file.write_all(content.as_bytes())?;
@@ -82,10 +85,7 @@ pub fn generate_kotlin_server(module: &Module, options: &Options) -> Result<(), 
 }
 
 fn generate_enum(package: &String, record: &Enum) -> String {
-    let is_sealed = record
-        .variants
-        .iter()
-        .any(|variant| !variant.properties.is_empty());
+    let is_sealed = !record.is_simple();
 
     let variants = record
         .variants
@@ -96,29 +96,18 @@ fn generate_enum(package: &String, record: &Enum) -> String {
 
     let doc_comment = generate_doc_comment("", &record.comment);
 
+    let decode_json = decode_enum(record);
+    let encode_json = encode_enum(record);
+    let name = &record.name.value;
     let class = if is_sealed {
-        let name = record.name.value.clone();
-        let parse_json_fn = parse_json_enum_object(&record.name.value, &record.variants);
-        let companion_object = [
-            format!("    companion object {{"),
-            indent_lines("        ", parse_json_fn),
-            format!("    }}"),
-        ]
-        .join("\n");
-        format!("sealed class {name} {{\n\n{variants}\n\n{companion_object}\n}}")
+        format!("sealed class {name} {{\n\n{variants}\n}}")
     } else {
-        let name = record.name.value.clone();
         format!("enum class {name} {{\n{variants}\n}}")
     };
 
-    let imports = format!(
-        r#"
-import kotlinx.serialization.json.*
-import {package}.json.*
-    "#
-    );
-
-    format!("package {package}.models\n{imports}\n\n{doc_comment}{class}")
+    println!("{}", encode_json);
+    let file_header = model_header(package, true);
+    format!("{file_header}\n\n{doc_comment}{class}\n\n{decode_json}\n\n{encode_json}")
 }
 
 fn generate_service(package: &String, service: &Service) -> String {
@@ -205,7 +194,7 @@ fn generate_ktor_handler(_record_package: &String, service: &Service, method: &M
             format!("        val result = service.{name}(request!!)"),
             format!(
                 "        call.respondNullable({})",
-                encode_json(&"result".to_string(), return_type)
+                encode_type(&"result".to_string(), return_type)
             ),
             format!("    }}"),
         ]
@@ -229,7 +218,7 @@ fn generate_ktor_handler(_record_package: &String, service: &Service, method: &M
             format!("    val result = service.{name}()"),
             format!(
                 "    call.respondNullable({})",
-                encode_json(&"result".to_string(), return_type)
+                encode_type(&"result".to_string(), return_type)
             ),
         ]
         .join("\n"),
@@ -279,14 +268,10 @@ fn generate_sealed_sub_class(package: &String, parent_name: &Name, variant: &Var
 fn generate_property(indent: &str, package: &String, property: &Property) -> String {
     let name = property.name.value.clone();
     let type_ = generate_type_ref(package, &property.type_);
-    let nullable = match &property.type_ {
-        Type::Option(_) => "?",
-        _ => "",
-    };
-    format!("{indent}val {name}: {type_}{nullable},")
+    format!("{indent}val {name}: {type_},")
 }
 
-fn generate_record(package: &String, record: &Record) -> String {
+fn generate_record(package: &String, record: &Record, with_header: bool) -> String {
     let class = if record.properties.is_empty() {
         format!("data object {}", record.name.value)
     } else {
@@ -297,61 +282,39 @@ fn generate_record(package: &String, record: &Record) -> String {
             .collect::<Vec<String>>()
             .join("\n");
 
-        let validation = record
-            .properties
-            .iter()
-            .flat_map(|property| {
-                property
-                    .annotations
-                    .iter()
-                    .filter_map(|annotation| match annotation {
-                        Annotation::Check(constraints) => {
-                            Some(render(&Constraint::And(constraints.clone())))
-                        }
-                        Annotation::Custom(_) => None,
-                    })
-                    .map(|constraint| (&property.name, constraint))
-            })
-            .map(|(name, constraint)| {
-                [
-                    format!("if (!{constraint}) {{"),
-                    format!("    error()"),
-                    format!("}}"),
-                ]
-                .join("\n")
-            })
-            .join("\n");
-
-        println!("{validation}");
-
         let name = record.name.value.clone();
         format!("data class {name}(\n{properties}\n)",)
     };
 
-    let fields = record
-        .properties
-        .iter()
-        .map(|property| (&property.name, &property.type_))
-        .collect::<Vec<(&Name, &Type)>>();
-    let parse_json_fn = parse_json_object(&record.name.value, &fields);
-    let encode_json_fn = encode_json_object(&record.name.value, &fields);
-
-    let companion_object = [
-        format!("    companion object {{"),
-        indent_lines("        ", parse_json_fn),
-        format!("    }}"),
+    [
+        format!("{}", model_header(package, with_header)),
+        empty_line(),
+        format!("{}", generate_doc_comment("", &record.comment)),
+        format!("{class}"),
+        empty_line(),
+        format!("{}", decode_record(record)),
+        empty_line(),
+        format!("{}", encode_record(record)),
     ]
-    .join("\n");
+    .join("\n")
+}
 
-    let imports = format!(
-        r#"
-import kotlinx.serialization.json.*
-import {package}.json.*
-    "#
-    );
+fn empty_line() -> String {
+    "".to_string()
+}
 
-    let doc_comment = generate_doc_comment("", &record.comment);
-    format!("package {package}.models\n{imports}\n\n{doc_comment}{class} {{\n\n{encode_json_fn}\n\n{companion_object}\n\n}}")
+fn model_header(package: &String, imports: bool) -> String {
+    if !imports {
+        return "".to_string();
+    }
+
+    [
+        format!("package {package}.models"),
+        empty_line(),
+        format!("import kotlinx.serialization.json.*"),
+        format!("import {package}.json.*"),
+    ]
+    .join("\n")
 }
 
 fn generate_request(package: &String, method: &Method) -> String {
@@ -359,37 +322,23 @@ fn generate_request(package: &String, method: &Method) -> String {
     let properties = method
         .parameters
         .iter()
-        .map(|param| {
-            let name = &param.name.value;
-            let type_ref = generate_type_ref(package, &param.type_);
-            format!("    val {name}: {type_ref}")
+        .map(|param| Property {
+            annotations: param.annotations.clone(),
+            comment: None,
+            name: param.name.clone(),
+            type_: param.type_.clone(),
         })
-        .collect::<Vec<String>>()
-        .join(",\n");
+        .collect::<Vec<Property>>();
 
-    let fields = method
-        .parameters
-        .iter()
-        .map(|property| (&property.name, &property.type_))
-        .collect::<Vec<(&Name, &Type)>>();
-
-    let parse_json_fn = parse_json_object(&method.name.request_name(), &fields);
-
-    let companion_object = [
-        format!("    companion object {{"),
-        indent_lines("        ", parse_json_fn),
-        format!("    }}"),
-    ]
-    .join("\n");
-
-    let modifier = if method.parameters.len() == 1 {
-        "@JvmInline\nvalue"
-    } else {
-        "data"
+    let record = Record {
+        name: Name::from_str(request_name.as_str()),
+        annotations: vec![],
+        comment: None,
+        properties,
+        type_variables: vec![],
     };
-    let class = format!("{modifier} class {request_name}(\n{properties}\n)");
 
-    format!("{class} {{\n\n{companion_object}\n\n}}")
+    generate_record(package, &record, false)
 }
 
 fn generate_type_ref(package: &String, type_: &Type) -> String {
@@ -422,7 +371,18 @@ fn generate_type_ref(package: &String, type_: &Type) -> String {
             let value = generate_type_ref(package, value_type);
             format!("{value}?")
         }
-        Type::Ref(name) => name.clone(),
+        Type::Ref(name, types) => {
+            if types.is_empty() {
+                name.clone()
+            } else {
+                let refs = types
+                    .iter()
+                    .map(|type_| generate_type_ref(package, type_))
+                    .join(", ");
+
+                format!("{name}<{refs}>")
+            }
+        }
     }
 }
 
@@ -448,117 +408,6 @@ fn indent_lines(indent: &str, value: String) -> String {
         .join("\n")
 }
 
-fn parse_json_enum_object(name: &String, variants: &Vec<Variant>) -> String {
-    let var_json = &"json".to_string();
-    let var_errors = &"errors".to_string();
-    let parsing_fields = variants
-        .iter()
-        .map(|variant| {
-            let name = &variant.name.value;
-            if variant.properties.is_empty() {
-                format!("    \"{name}\" -> {name}")
-            } else {
-                let fields = variant
-                    .properties
-                    .iter()
-                    .map(|property| {
-                        parse_json_field(&"this".to_string(), &property.name, &property.type_)
-                    })
-                    .join("\n");
-
-                let constructor_fields = variant
-                    .properties
-                    .iter()
-                    .map(|property| match &property.type_ {
-                        Type::Option(type_) => {
-                            format!("{} = {}", &property.name.value, property.name.value)
-                        }
-                        _ => format!("{} = {}!!", property.name.value, property.name.value),
-                    })
-                    .join(",\n");
-
-                [
-                    format!("    \"{name}\" -> {{"),
-                    indent_lines("        ", fields),
-                    "".to_string(),
-                    format!("        if ({var_errors}.isNotEmpty()) {{"),
-                    format!("            error(JsonObject({var_errors}))"),
-                    format!("            null"),
-                    format!("        }} else {{"),
-                    format!("            {name}("),
-                    indent_lines("                ", constructor_fields),
-                    format!("            )"),
-                    format!("        }}"),
-                    format!("    }}"),
-                ]
-                .join("\n")
-            }
-        })
-        .collect::<Vec<String>>()
-        .join("\n\n");
-
-    [
-        format!("inline fun decode({var_json}: JsonElement?, required: Boolean = true, error: (JsonElement) -> Unit): {name}? = "),
-        format!("    decodeObject({var_json}, required, error) {{"),
-        format!("        val {var_errors} = mutableMapOf<String, JsonElement>()"),
-        format!("        val type = decodeString(this[\"type_\"], required = true) {{ {var_errors}[\"type_\"] = expected(\"STRING\", it) }}"),
-        format!("        when (type) {{"),
-        indent_lines("        ", parsing_fields),
-        format!("            else -> {{"),
-        format!("                error(expected(\"DISCRIMINATOR\", JsonPrimitive(type)))"),
-        format!("                null"),
-        format!("            }}"),
-        format!("        }}"),
-        format!("    }}"),
-    ]
-        .join("\n")
-}
-
-fn parse_json_object(name: &String, fields: &Vec<(&Name, &Type)>) -> String {
-    let var_json = &"json".to_string();
-    let var_errors = &"errors".to_string();
-    let parsing_fields = fields
-        .iter()
-        .map(|(name, type_)| parse_json_field(&"this".to_string(), name, type_))
-        .collect::<Vec<String>>()
-        .join("\n\n");
-
-    let constructor_fields = fields
-        .iter()
-        .map(|(name, type_)| match type_ {
-            Type::Option(type_) => format!("{} = {}", name.value, name.value),
-            _ => format!("{} = {}!!", name.value, name.value),
-        })
-        .collect::<Vec<String>>()
-        .join(",\n");
-
-    [
-        format!("inline fun decode({var_json}: JsonElement?, required: Boolean = true, error: (JsonElement) -> Unit): {name}? = "),
-        format!("    decodeObject({var_json}, required, error) {{"),
-        format!("        val {var_errors} = mutableMapOf<String, JsonElement>()"),
-        indent_lines("        ", parsing_fields),
-        "".to_string(),
-        format!("        if ({var_errors}.isNotEmpty()) {{"),
-        format!("            error(JsonObject({var_errors}))"),
-        format!("            null"),
-        format!("        }} else {{"),
-        format!("            {name}("),
-        indent_lines("                ", constructor_fields),
-        format!("            )"),
-        format!("        }}"),
-        format!("    }}"),
-    ]
-    .join("\n")
-}
-
-fn parse_json_field(var_json: &String, name: &Name, type_: &Type) -> String {
-    let name = &name.value;
-    let var_expr = format!("{var_json}[\"{name}\"]");
-    parse_json(name, &var_expr, true, type_, |error| {
-        format!("errors[\"{name}\"] = {error}")
-    })
-}
-
 fn encode_json_object(name: &String, fields: &Vec<(&Name, &Type)>) -> String {
     let parsing_fields = fields
         .iter()
@@ -574,86 +423,7 @@ fn encode_json_object(name: &String, fields: &Vec<(&Name, &Type)>) -> String {
 }
 
 fn encode_json_field(name: &String, var_prop: &String, type_: &Type) -> String {
-    format!("put(\"{name}\", {})", encode_json(var_prop, type_))
-}
-
-fn encode_json(var_expr: &String, type_: &Type) -> String {
-    match type_ {
-        Type::String => var_expr.clone(),
-        Type::Boolean => var_expr.clone(),
-        Type::Int32 => var_expr.clone(),
-        Type::Int64 => var_expr.clone(),
-        Type::Float32 => var_expr.clone(),
-        Type::Float64 => var_expr.clone(),
-        Type::Map(_, _) => "".to_string(),
-        Type::Result(error_type, ok_type) => format!(
-            "{var_expr}.encode(encodeOk = {{ {} }}, encodeErr = {{ {} }})",
-            encode_json(&"it".to_string(), ok_type),
-            encode_json(&"it".to_string(), error_type)
-        ),
-        Type::List(type_) => format!(
-            "buildJsonArray {{ {var_expr}.forEach {{ add({}) }} }}",
-            encode_json(&"it".to_string(), type_)
-        ),
-        Type::Set(type_) => format!(
-            "encodeArray({var_expr}) {{ {} }}",
-            encode_json(&"it".to_string(), type_)
-        ),
-        Type::Option(type_) => encode_json(&format!("{var_expr}?"), type_),
-        Type::Ref(name) => format!("{var_expr}.encode()"),
-    }
-}
-
-fn parse_json<F>(var: &String, var_expr: &String, required: bool, type_: &Type, error: F) -> String
-where
-    F: Fn(String) -> String,
-{
-    match type_ {
-        Type::String => [
-            format!("val {var} = decodeString({var_expr}, required = {required}) {{"),
-            format!("    {}", error("it".to_string())),
-            format!("}}",),
-        ]
-        .join("\n"),
-        Type::Int32 => [
-            format!("val {var} = decodeInt32({var_expr}, required = {required}) {{"),
-            format!("    {}", error("it".to_string())),
-            format!("}}",),
-        ]
-        .join("\n"),
-        Type::Int64 => [
-            format!("val {var} = decodeInt64({var_expr}, required = {required}) {{"),
-            format!("    {}", error("it".to_string())),
-            format!("}}",),
-        ]
-        .join("\n"),
-        Type::Boolean => [
-            format!("val {var} = decodeBoolean({var_expr}, required = {required}) {{"),
-            format!("    {}", error("it".to_string())),
-            format!("}}",),
-        ]
-        .join("\n"),
-        Type::Float32 => [
-            format!("val {var} = decodeFloat32({var_expr}, required = {required}) {{"),
-            format!("    {}", error("it".to_string())),
-            format!("}}",),
-        ]
-        .join("\n"),
-        Type::Float64 => [
-            format!("val {var} = decodeFloat64({var_expr}, required = {required}) {{"),
-            format!("    {}", error("it".to_string())),
-            format!("}}",),
-        ]
-        .join("\n"),
-        Type::Option(type_) => parse_json(var, var_expr, false, type_, error),
-        Type::Ref(name) => [
-            format!("val {var} = {name}.decode({var_expr}, required = {required}) {{"),
-            format!("    {}", error("it".to_string())),
-            format!("}}"),
-        ]
-        .join("\n"),
-        _ => format!(""),
-    }
+    format!("put(\"{name}\", {})", encode_type(var_prop, type_))
 }
 
 fn generate_json_functions(package: &String) -> String {
@@ -667,14 +437,496 @@ fn generate_result_type(package: &String) -> String {
 import io.noobymatze.ruff.generated.json.*
 import kotlinx.serialization.json.*
     "#;
-    format!("package {package}.models\n{imports}\n\n{data}")
+    format!("package {package}.models{imports}\n\n{data}")
 }
 
 fn validate_value(record: &Record) -> String {
     "".to_string()
 }
 
-fn render(constraint: &Constraint) -> String {
+// JSON ENCODE
+
+fn encode_record(record: &Record) -> String {
+    let name = &record.name.value;
+    let var_name = "value".to_string();
+    let indent = "    ".to_string();
+
+    [
+        format!("fun encode{name}({var_name}: {name}): JsonElement = buildJsonObject {OPEN} "),
+        encode_fields(&indent, &var_name, &record.properties),
+        format!("{CLOSE}"),
+    ]
+    .join("\n")
+}
+
+fn encode_enum(record: &Enum) -> String {
+    let name = &record.name.value;
+    let var_name = "value".to_string();
+    let indent = "    ".to_string();
+
+    if record.is_simple() {
+        [
+            format!("fun encode{name}({var_name}: {name}): JsonElement = "),
+            encode_simple_variants(&indent, &var_name, name, &record.variants),
+        ]
+        .join("\n")
+    } else {
+        let type_vars = type_vars(&record.type_variables)
+            .map(|x| format!(" {x} "))
+            .unwrap_or(" ".to_string());
+
+        let type_ref = generate_type_ref(&"".to_string(), &record.as_type());
+
+        [
+            format!("fun{type_vars}encode{name}({var_name}: {type_ref}): JsonElement = buildJsonObject {OPEN} "),
+            encode_variants(&indent, &var_name, name, &record.variants),
+            format!("{CLOSE}"),
+        ]
+        .join("\n")
+    }
+}
+
+fn type_vars(type_variables: &Vec<Name>) -> Option<String> {
+    if type_variables.is_empty() {
+        None
+    } else {
+        let result = format!(
+            "<{}>",
+            type_variables
+                .iter()
+                .map(|variable| &variable.value)
+                .join(", "),
+        );
+        Some(result)
+    }
+}
+
+fn encode_simple_variants(
+    indent: &String,
+    var_object: &String,
+    enum_name: &String,
+    variants: &Vec<Variant>,
+) -> String {
+    [
+        format!("{indent}when ({var_object}) {OPEN}"),
+        variants
+            .iter()
+            .map(|variant| {
+                [format!(
+                    "{indent}    {enum_name}.{} -> JsonPrimitive(\"{}\")",
+                    variant.name.value, variant.name.value
+                )]
+                .join("\n")
+            })
+            .join("\n"),
+        format!("{indent}{CLOSE}"),
+    ]
+    .join("\n")
+}
+
+fn encode_variants(
+    indent: &String,
+    var_object: &String,
+    enum_name: &String,
+    variants: &Vec<Variant>,
+) -> String {
+    [
+        format!("{indent}when ({var_object}) {OPEN}"),
+        variants
+            .iter()
+            .map(|variant| {
+                [
+                    format!(
+                        "{indent}    is {enum_name}.{} -> {OPEN}",
+                        variant.name.value
+                    ),
+                    format!("{indent}        put(\"@type\", \"{}\")", variant.name.value),
+                    encode_fields(
+                        &format!("{indent}        "),
+                        var_object,
+                        &variant.properties,
+                    ),
+                    format!("{indent}    {CLOSE}"),
+                ]
+                .join("\n")
+            })
+            .join("\n"),
+        format!("{indent}{CLOSE}"),
+    ]
+    .join("\n")
+}
+
+fn encode_fields(indent: &String, var_object: &String, properties: &Vec<Property>) -> String {
+    properties
+        .iter()
+        .map(|property| encode_field(&indent, &var_object, &property.name.value, &property.type_))
+        .join("\n")
+}
+
+fn encode_field(indent: &String, var_object: &String, name: &String, type_: &Type) -> String {
+    let type_ = encode_type(&format!("{var_object}.{name}"), type_);
+    format!("{indent}put(\"{name}\", {type_})")
+}
+
+fn encode_type(var_expr: &String, type_: &Type) -> String {
+    match type_ {
+        Type::String => var_expr.clone(),
+        Type::Boolean => var_expr.clone(),
+        Type::Int32 => var_expr.clone(),
+        Type::Int64 => var_expr.clone(),
+        Type::Float32 => var_expr.clone(),
+        Type::Float64 => var_expr.clone(),
+        Type::Map(_, _) => "".to_string(),
+        Type::Result(error_type, ok_type) => format!(
+            "{var_expr}.encode(encodeOk = {{ {} }}, encodeErr = {{ {} }})",
+            encode_type(&"it".to_string(), ok_type),
+            encode_type(&"it".to_string(), error_type)
+        ),
+        Type::List(type_) => format!(
+            "buildJsonArray {{ {var_expr}.forEach {{ add({}) }} }}",
+            encode_type(&"it".to_string(), type_)
+        ),
+        Type::Set(type_) => format!(
+            "buildJsonArray {{ {var_expr}.forEach {{ add({}) }} }}",
+            encode_type(&"it".to_string(), type_)
+        ),
+        Type::Option(type_) => encode_type(&format!("{var_expr}"), type_),
+        Type::Ref(name, _) => format!("encode{name}({var_expr})"),
+    }
+}
+
+// JSON DECODE
+
+fn decode_record(record: &Record) -> String {
+    let name = &record.name.value;
+    let indent = "    ".to_string();
+    let var_object = "json".to_string();
+    let var_errors = "errors".to_string();
+
+    let constructor = call_constructor(&format!("{indent}    "), name, &record.properties);
+
+    [
+        format!("fun decode{name}(json: JsonElement, errors: Errors): {name}? {OPEN}"),
+        format!("    if (json !is JsonObject) {OPEN}"),
+        format!("        errors.error(errors.expect(\"OBJECT\"))"),
+        format!("        return null"),
+        format!("    {CLOSE}"),
+        "".to_string(),
+        decode_fields(&indent, &var_object, &var_errors, &record.properties),
+        "".to_string(),
+        format!("    if (errors.isEmpty()) {OPEN}"),
+        format!("        val {name} = {constructor}"),
+        //format!("        validate{name}({name}, errors)"),
+        format!("        return {name}"),
+        format!("    {CLOSE} else {OPEN}"),
+        format!("        return null"),
+        format!("    {CLOSE}"),
+        format!("{CLOSE}"),
+    ]
+    .join("\n")
+}
+
+fn decode_enum(record: &Enum) -> String {
+    let name = &record.name.value;
+    if record.is_simple() {
+        let variants = record
+            .variants
+            .iter()
+            .map(|variant| {
+                [
+                    format!("if (value == \"{}\") {OPEN}", variant.name.value),
+                    format!("        return {name}.{}", variant.name.value),
+                    format!("    {CLOSE}"),
+                ]
+                .join("\n")
+            })
+            .join(" else ");
+
+        [
+            format!("fun decode{name}(json: JsonElement, errors: Errors): {name}? {OPEN}"),
+            format!("    if (json !is JsonPrimitive || !json.isString) {OPEN}"),
+            format!("        errors.error(errors.expect(\"STRING\"))"),
+            format!("        return null"),
+            format!("    {CLOSE}"),
+            format!("    val value = json.content"),
+            format!("    {variants} else {OPEN}"),
+            format!(
+                "        errors.error(errors.expect(\"ONEOF {}\"))",
+                record.name.value
+            ),
+            format!("        return null"),
+            format!("    {CLOSE}"),
+            format!("{CLOSE}"),
+        ]
+        .join("\n")
+    } else {
+        [
+            format!("fun decode{name}(json: JsonElement, errors: Errors): {name}? {OPEN}"),
+            format!("    if (json !is JsonObject) {OPEN}"),
+            format!("        errors.error(errors.expect(\"OBJECT\"))"),
+            format!("        return null"),
+            format!("    {CLOSE}"),
+            decode_field(
+                &"    ".to_string(),
+                &"json".to_string(),
+                &"type".to_string(),
+                &"@type".to_string(),
+                &"errors".to_string(),
+                &Type::String,
+            ),
+            format!(
+                "    {}",
+                record
+                    .variants
+                    .iter()
+                    .map(|variant| {
+                        [
+                            format!("if (type == \"{}\") {OPEN}", variant.name.value),
+                            decode_variant(
+                                &"    ".to_string(),
+                                &variant,
+                                &"json".to_string(),
+                                &"errors".to_string(),
+                            ),
+                            format!("    {CLOSE}"),
+                        ]
+                        .join("\n")
+                    })
+                    .join(" else ")
+            ),
+            "".to_string(),
+            format!("{CLOSE}"),
+        ]
+        .join("\n")
+    }
+}
+
+fn decode_variant(
+    indent: &String,
+    variant: &Variant,
+    var_object: &String,
+    var_error: &String,
+) -> String {
+    let name = &variant.name.value;
+    let constructor = call_constructor(&format!("{indent}        "), name, &variant.properties);
+    [
+        decode_fields(
+            &format!("{indent}    "),
+            var_object,
+            var_error,
+            &variant.properties,
+        ),
+        "".to_string(),
+        format!("{indent}    if (errors.isEmpty()) {OPEN}"),
+        format!("{indent}        val {name} = {constructor}",),
+        //format!("{indent}        validate{name}({name}, errors)"),
+        format!("{indent}        return {name}"),
+        format!("{indent}    {CLOSE} else {OPEN}"),
+        format!("{indent}        return null"),
+        format!("{indent}    {CLOSE}"),
+    ]
+    .join("\n")
+}
+
+fn call_constructor(indent: &String, name: &String, properties: &Vec<Property>) -> String {
+    let properties = properties
+        .iter()
+        .map(|property| {
+            let name = &property.name.value;
+            let required = if matches!(property.type_, Type::Option(_)) {
+                ""
+            } else {
+                "!!"
+            };
+
+            format!("{indent}    {name} = {name}{required},")
+        })
+        .join("\n");
+
+    [format!("{name}("), properties, format!("{indent})")].join("\n")
+}
+
+fn decode_fields(
+    indent: &str,
+    var_object: &String,
+    var_error: &String,
+    properties: &Vec<Property>,
+) -> String {
+    properties
+        .iter()
+        .map(|property| {
+            decode_field(
+                &format!("{indent}"),
+                &var_object,
+                &property.name.value,
+                &property.name.value,
+                &var_error,
+                &property.type_,
+            )
+        })
+        .join("\n\n")
+}
+
+fn decode_field(
+    indent: &str,
+    var_object: &String,
+    var_name: &String,
+    field_name: &String,
+    var_error: &String,
+    type_: &Type,
+) -> String {
+    let var_field = format!("{var_name}Field");
+
+    [
+        format!("{indent}val {var_field} = {var_object}[\"{field_name}\"]"),
+        decode_type(
+            indent,
+            &var_field,
+            var_name,
+            var_error,
+            type_,
+            true,
+            |err| format!("errors.field(\"{field_name}\", {err})"),
+        ),
+    ]
+    .join("\n")
+}
+
+fn decode_type<F>(
+    indent: &str,
+    var_json: &String,
+    var_name: &String,
+    var_error: &String,
+    type_: &Type,
+    required: bool,
+    error: F,
+) -> String
+where
+    F: Fn(String) -> String,
+{
+    let type_name = match &type_ {
+        Type::Option(type_) => generate_type_ref(&"".to_string(), &type_),
+        _ => generate_type_ref(&"".to_string(), &type_),
+    };
+
+    let not_null_error = if required {
+        [
+            format!("else {OPEN}"),
+            format!(
+                "{indent}    {var_error}.error({})",
+                error(format!("{var_error}.notNull"))
+            ),
+            format!("{indent}{CLOSE}"),
+        ]
+        .join("\n")
+    } else {
+        "".to_string()
+    };
+
+    match &type_ {
+        Type::String => [
+            format!("{indent}var {var_name}: {type_name}? = null"),
+            format!("{indent}if ({var_json} != null) {OPEN}"),
+            format!("{indent}    if ({var_json} is JsonPrimitive && {var_json}.isString) {OPEN}"),
+            format!("{indent}        {var_name} = {var_json}.content"),
+            format!("{indent}    {CLOSE} else {OPEN}"),
+            format!(
+                "{indent}        {var_error}.error({})",
+                error(format!("{var_error}.expect(\"STRING\")"))
+            ),
+            format!("{indent}    {CLOSE}"),
+            format!("{indent}{CLOSE} {not_null_error}"),
+        ]
+        .join("\n"),
+        Type::Int32 => [
+            format!("{indent}var {var_name}: {type_name}? = null"),
+            format!("{indent}if ({var_json} != null) {OPEN}"),
+            format!("{indent}    if ({var_json} is JsonPrimitive) {OPEN}"),
+            format!("{indent}        {var_name} = {var_json}.intOrNull"),
+            format!("{indent}    {CLOSE}"),
+            format!("{indent}    if ({var_name} == null) {OPEN}"),
+            format!(
+                "{indent}        {var_error}.error({})",
+                error(format!("{var_error}.expect(\"INT32\")"))
+            ),
+            format!("{indent}    {CLOSE}"),
+            format!("{indent}{CLOSE} {not_null_error}"),
+        ]
+        .join("\n"),
+        Type::Int64 => [
+            format!("{indent}var {var_name}: {type_name}? = null"),
+            format!("{indent}if ({var_json} != null) {OPEN}"),
+            format!("{indent}    if ({var_json} is JsonPrimitive) {OPEN}"),
+            format!("{indent}        {var_name} = {var_json}.longOrNull"),
+            format!("{indent}    {CLOSE}"),
+            format!("{indent}    if ({var_name} == null) {OPEN}"),
+            format!(
+                "{indent}        {var_error}.error({})",
+                error(format!("{var_error}.expect(\"INT64\")"))
+            ),
+            format!("{indent}    {CLOSE}"),
+            format!("{indent}{CLOSE} {not_null_error}"),
+        ]
+        .join("\n"),
+        Type::Float32 => [
+            format!("{indent}var {var_name}: {type_name}? = null"),
+            format!("{indent}if ({var_json} != null) {OPEN}"),
+            format!("{indent}    if ({var_json} is JsonPrimitive) {OPEN}"),
+            format!("{indent}        {var_name} = {var_json}.floatOrNull"),
+            format!("{indent}    {CLOSE}"),
+            format!("{indent}    if ({var_name} == null) {OPEN}"),
+            format!(
+                "{indent}        {var_error}.error({})",
+                error(format!("{var_error}.expect(\"FLOAT32\")"))
+            ),
+            format!("{indent}    {CLOSE}"),
+            format!("{indent}{CLOSE} {not_null_error}"),
+        ]
+        .join("\n"),
+        Type::Float64 => [
+            format!("{indent}var {var_name}: {type_name}? = null"),
+            format!("{indent}if ({var_json} != null) {OPEN}"),
+            format!("{indent}    if ({var_json} is JsonPrimitive) {OPEN}"),
+            format!("{indent}        {var_name} = {var_json}.doubleOrNull"),
+            format!("{indent}    {CLOSE}"),
+            format!("{indent}    if ({var_name} == null) {OPEN}"),
+            format!(
+                "{indent}        {var_error}.error({})",
+                error(format!("{var_error}.expect(\"FLOAT64\")"))
+            ),
+            format!("{indent}    {CLOSE}"),
+            format!("{indent}{CLOSE} {not_null_error}"),
+        ]
+        .join("\n"),
+        Type::Boolean => [
+            format!("{indent}var {var_name}: {type_name}? = null"),
+            format!("{indent}if ({var_json} != null) {OPEN}"),
+            format!("{indent}    if ({var_json} is JsonPrimitive) {OPEN}"),
+            format!("{indent}        {var_name} = {var_json}.booleanOrNull"),
+            format!("{indent}    {CLOSE}"),
+            format!("{indent}    if ({var_name} == null) {OPEN}"),
+            format!(
+                "{indent}        {var_error}.error({})",
+                error(format!("{var_error}.expect(\"BOOLEAN\")"))
+            ),
+            format!("{indent}    {CLOSE}"),
+            format!("{indent}{CLOSE} {not_null_error}"),
+        ]
+        .join("\n"),
+        Type::Option(type_) => {
+            decode_type(indent, var_json, var_name, var_error, type_, false, error)
+        }
+        Type::Ref(name, _) => [
+            format!("{indent}val {var_name}Errors = Errors()"),
+            format!("{indent}val {var_name} = decode{name}({var_json}, {var_name}Errors)"),
+            format!("{indent}{var_error}.error({var_name}Errors)"),
+        ]
+        .join("\n"),
+        _ => format!("not implemented: {type_:?}"),
+    }
+}
+
+fn render(constraint: &Constraint, property: &Option<Property>) -> String {
     match constraint {
         Constraint::Lt(constraints) => {
             if constraints.len() <= 1 {
@@ -682,7 +934,7 @@ fn render(constraint: &Constraint) -> String {
             } else {
                 let result = constraints
                     .iter()
-                    .map(|constraint| render(constraint))
+                    .map(|constraint| render(constraint, property))
                     .collect::<Vec<String>>();
                 parenthesize(&result, "<")
             }
@@ -693,7 +945,7 @@ fn render(constraint: &Constraint) -> String {
             } else {
                 let result = constraints
                     .iter()
-                    .map(|constraint| render(constraint))
+                    .map(|constraint| render(constraint, property))
                     .collect::<Vec<String>>();
                 parenthesize(&result, "==")
             }
@@ -704,7 +956,7 @@ fn render(constraint: &Constraint) -> String {
             } else {
                 let result = constraints
                     .iter()
-                    .map(|constraint| render(constraint))
+                    .map(|constraint| render(constraint, property))
                     .collect::<Vec<String>>();
                 parenthesize(&result, "<=")
             }
@@ -715,7 +967,7 @@ fn render(constraint: &Constraint) -> String {
             } else {
                 let result = constraints
                     .iter()
-                    .map(|constraint| render(constraint))
+                    .map(|constraint| render(constraint, property))
                     .collect::<Vec<String>>();
                 parenthesize(&result, ">")
             }
@@ -726,7 +978,7 @@ fn render(constraint: &Constraint) -> String {
             } else {
                 let result = constraints
                     .iter()
-                    .map(|constraint| render(constraint))
+                    .map(|constraint| render(constraint, property))
                     .collect::<Vec<String>>();
                 parenthesize(&result, ">=")
             }
@@ -734,32 +986,40 @@ fn render(constraint: &Constraint) -> String {
         Constraint::Or(constraints) => {
             let x = constraints
                 .iter()
-                .map(|constraint| render(constraint))
+                .map(|constraint| render(constraint, property))
                 .join(" || ");
             format!("({x})")
         }
         Constraint::And(constraints) => {
             let x = constraints
                 .iter()
-                .map(|constraint| render(constraint))
+                .map(|constraint| render(constraint, property))
                 .join(" && ");
             format!("({x})")
         }
         Constraint::Xor(constraints) => {
             let x = constraints
                 .iter()
-                .map(|constraint| render(constraint))
+                .map(|constraint| render(constraint, property))
                 .join(" xor ");
             format!("({x})")
         }
         Constraint::Len(constraint) => {
-            let value = render(constraint);
+            let value = render(constraint, property);
             format!("{value}.size")
+        }
+        Constraint::Blank(constraint) => {
+            let value = render(constraint, property);
+            format!("{value}.isBlank()")
+        }
+        Constraint::Not(constraint) => {
+            let value = render(constraint, property);
+            format!("!({value})")
         }
         Constraint::Number(value) => format!("{value}"),
         Constraint::String(value) => format!("\"{value}\""),
         Constraint::Boolean(value) => value.to_string(),
-        Constraint::Map(values) => "".to_string(),
+        Constraint::Map(_) => "".to_string(),
         Constraint::Ref(name) => name.clone(),
     }
 }
@@ -781,38 +1041,55 @@ fn parenthesize(values: &Vec<String>, op: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::canonical::Type;
+    use std::collections::HashMap;
+
+    use crate::ast::canonical::{Module, Record, Type};
     use crate::ast::constraints::Constraint;
     use crate::ast::source::Name;
     use crate::codegen::kotlin::{
-        parenthesize, parse_json, parse_json_field, parse_json_object, render,
+        decode_enum, decode_field, decode_record, decode_type, generate_kotlin_server,
+        generate_record, parenthesize, render, Options,
     };
+    use crate::error::Error;
+    use crate::reporting::Region;
+    use crate::{compile, parse};
 
     #[test]
-    fn test() {
-        let result = render(&Constraint::Or(vec![
-            Constraint::And(vec![
-                Constraint::Eq(vec![
-                    Constraint::Ref("country".to_string()),
-                    Constraint::String("DE".to_string()),
-                ]),
-                Constraint::Eq(vec![
-                    Constraint::Ref("zipcode".to_string()),
-                    Constraint::Number(5.0),
-                ]),
-            ]),
-            Constraint::And(vec![
-                Constraint::Eq(vec![
-                    Constraint::Ref("country".to_string()),
-                    Constraint::String("CH".to_string()),
-                ]),
-                Constraint::Eq(vec![
-                    Constraint::Ref("zipcode".to_string()),
-                    Constraint::Number(4.0),
-                ]),
-            ]),
-        ]));
+    fn test() -> Result<(), Error> {
+        let spec = r#"
+            data Address {
+                #(check (not (blank .name)))
+                street: String,
+                houseNo: Int32,
+                #(check
+                    (or (and (= .country "DE") (= (len .zipcode) 5))
+                        (and (= .country "CH") (= (len .zipcode) 4))))
+                zipcode: String,
+                #(check (or (= .country "DE") (= .country "CH")))
+                country: String,
+            }
 
-        println!("{result}",);
+            enum LoginResult {
+                Hello { name: String },
+                Test { name: String },
+            }
+
+            enum Country {
+                DE,
+                EN,
+                CH,
+            }
+        "#;
+
+        let module = compile(None, spec)?;
+        let result = module.records.get("Address").expect("Get Address");
+        let login_result = module.enums.get("LoginResult").expect("Get LoginResult");
+        let country = module.enums.get("Country").expect("Get Country");
+
+        println!("{}", decode_enum(&login_result));
+        println!("{}", decode_enum(&country));
+        println!("{}", generate_record(&"test".to_string(), &result, true));
+
+        Ok(())
     }
 }

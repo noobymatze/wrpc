@@ -71,6 +71,7 @@ pub struct Record {
     pub comment: Option<String>,
     pub name: Name,
     pub properties: Vec<Property>,
+    pub type_variables: Vec<Name>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -87,6 +88,26 @@ pub struct Enum {
     pub comment: Option<String>,
     pub name: Name,
     pub variants: Vec<Variant>,
+    pub type_variables: Vec<Name>,
+}
+
+impl Enum {
+    /// Check if any variant has at least a single property.
+    pub fn is_simple(&self) -> bool {
+        self.variants
+            .iter()
+            .all(|variant| variant.properties.is_empty())
+    }
+
+    pub fn as_type(&self) -> Type {
+        let types = self
+            .type_variables
+            .iter()
+            .map(|type_| Type::Ref(type_.value.clone(), vec![]))
+            .collect();
+
+        Type::Ref(self.name.value.clone(), types)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -135,13 +156,22 @@ pub enum Type {
     List(Box<Type>),
     Set(Box<Type>),
     Option(Box<Type>),
-    Ref(String),
+    Ref(String, Vec<Type>),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Annotation {
     Check(Vec<Constraint>),
     Custom(Expr),
+}
+
+impl Annotation {
+    pub fn get_constraints(&self) -> Vec<Constraint> {
+        match self {
+            Annotation::Check(constraints) => constraints.clone(),
+            Annotation::Custom(_) => vec![],
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

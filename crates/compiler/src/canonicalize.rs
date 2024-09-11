@@ -107,6 +107,7 @@ fn canonicalize_data(data: &src::Data) -> Result<can::Record, Vec<canonicalize::
                     comment: data.doc_comment.clone(),
                     name: data.name.clone(),
                     properties,
+                    type_variables: data.type_variables.clone(),
                 })
             } else {
                 Err(errors)
@@ -221,6 +222,14 @@ fn parse_constraint(expr: &src::Expr) -> Result<Constraint, canonicalize::Annota
                     .map(parse_constraint)
                     .collect::<Result<Vec<Constraint>, canonicalize::Annotation>>()?,
             ),
+            [src::Expr::Symbol(_, value), arg, _args @ ..] if value == "blank" => {
+                let constraint = parse_constraint(arg)?;
+                Constraint::Blank(Box::new(constraint))
+            }
+            [src::Expr::Symbol(_, value), arg, _args @ ..] if value == "not" => {
+                let constraint = parse_constraint(arg)?;
+                Constraint::Not(Box::new(constraint))
+            }
             _ => unimplemented!(),
         },
         src::Expr::Map(_, values) => Constraint::Map(
@@ -296,6 +305,7 @@ fn canonicalize_enum(data: &src::Enum) -> Result<can::Enum, Vec<canonicalize::En
             comment: data.doc_comment.clone(),
             name: data.name.clone(),
             variants,
+            type_variables: data.type_variables.clone(),
         })
     } else {
         Err(errors)
@@ -490,6 +500,9 @@ fn parse_type(type_: &src::Type) -> can::Type {
             let value = parse_type(&type_.variables[1]);
             can::Type::Result(error.into(), value.into())
         }
-        _ => can::Type::Ref(type_.name.value.clone()),
+        _ => can::Type::Ref(
+            type_.name.value.clone(),
+            type_.variables.iter().map(parse_type).collect(),
+        ),
     }
 }

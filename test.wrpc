@@ -16,23 +16,39 @@ data DateTime {
 }
 
 // An *Association* is an overarching organisation in the German
-// floorball landscape. They organize 
+// floorball landscape. They organize
 data Association {
     id: Int64,
+    //#(check (not blank))
     name: String,
     createdAt: DateTime,
     updatedAt: DateTime,
 }
 
-// Represents data, that is used to insert and update 
+// Represents data, that is used to insert and update
 // an [Association](#Association).
 data AssociationData {
+    #(check (not (blank .name)))
     name: String?,
 }
 
+// The *AssociationService* manages associations and their data.
+service AssociationService {
+
+    def get(id: Int64): Association?
+
+    def insert(data: AssociationData): Result<Error, Association>
+
+    def update(data: AssociationData): Result<Error, Association>
+
+    def delete(id: Int64)
+
+}
+
+
 // A *Club* is a club, that belongs to an [Association](#Association).
 //
-// It can be a club in 
+// It can be a club in
 data Club {
     id: Int64,
     name: String,
@@ -47,8 +63,12 @@ data ClubData {
     shortName: String?,
 }
 
+// A *Season* represents a year in the sport of floorball. A referee
+// only has a
 data Season {
     start: Date,
+    start_registration: DateTime,
+    end_registration: DateTime,
 }
 
 // This is an error, that will happen
@@ -58,7 +78,7 @@ enum Error {
     Foo { name: String, },
 }
 
-// Represents login credentials for a specific user. 
+// Represents login credentials for a specific user.
 data Credentials {
     username: String,
     password: String,
@@ -66,7 +86,7 @@ data Credentials {
 
 // A *Role* represents the role a user can have when
 // navigating the nordref application.
-// 
+//
 // - *SuperAdmin*: Means a user can do everything in the system, even on behalf of another user.
 // - *Admin*: Means a user can do everything a SuperAdmin can do, except deleting.
 // - *ClubAdmin*: Means a user can manage the users, registrations and data of their club.
@@ -101,28 +121,25 @@ service SessionService {
 
 }
 
-// The *AssociationService* manages associations and their data.
-service AssociationService {
-
-    def get(id: Int64): Association?
-
-    def insert(data: AssociationData): Result<Error, Association>
-
-    def update(data: AssociationData): Result<Error, Association>
-
-    def delete(id: Int64)
-
-}
-
 // The *ClubService* manages clubs and their data.
 service ClubService {
 
+    // Returns a [Club](#Club) based on the given id.
+    //
+    // If the club does not exist, will return `null`.
     def get(id: Int64): Club?
 
+    // Insert a new [Club](#Club) into the database and
+    // return the stored
     def insert(data: ClubData): Result<Error, Club>
 
     def update(data: ClubData): Result<Error, Club>
 
     def delete(id: Int64)
 
+}
+
+enum Result<E, T> {
+    Ok { value: T },
+    Err { value: E },
 }

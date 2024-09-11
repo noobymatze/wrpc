@@ -35,7 +35,7 @@ pub async fn run(module: &Module) {
 
     // build our application with a route
     let app = Router::new()
-        .route("/hello", get(index))
+        .route("/", get(index))
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())
         .with_state(state);

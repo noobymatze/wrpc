@@ -1,3 +1,5 @@
+use itertools::Itertools;
+
 use crate::ast::canonical::{
     Enum, Method, Module, Parameter, Property, Record, Service, Type, Variant,
 };
@@ -212,7 +214,17 @@ fn generate_type_ref(package: &String, type_: &Type) -> String {
             let value = generate_type_ref(package, value_type);
             format!("Option<{value}>")
         }
-        Type::Ref(name) => name.clone(),
+        Type::Ref(name, variables) => {
+            if variables.is_empty() {
+                name.clone()
+            } else {
+                let vars = variables
+                    .iter()
+                    .map(|type_| generate_type_ref(package, type_))
+                    .join(", ");
+                format!("{name}<{vars}>")
+            }
+        }
     }
 }
 

@@ -110,18 +110,22 @@ where
         annotations: Vec<Annotation>,
     ) -> Result<Enum, syntax::Enum> {
         let name = self.expect_name().map_err(syntax::Enum::BadName)?;
-        self.expect_token(Token::LBrace)
-            .map_err(|pos| syntax::Enum::MissingStart(pos.line, pos.col))?;
+        let type_variables = self.parse_type_variable(syntax::Enum::BadType)?;
+        self.expect_token(Token::LBrace, |pos| {
+            syntax::Enum::MissingStart(pos.line, pos.col)
+        })?;
 
         let variants = self.parse_variants().map_err(syntax::Enum::BadVariant)?;
-        self.expect_token(Token::RBrace)
-            .map_err(|pos| syntax::Enum::MissingEnd(pos.line, pos.col))?;
+        self.expect_token(Token::RBrace, |pos| {
+            syntax::Enum::MissingEnd(pos.line, pos.col)
+        })?;
 
         Ok(Enum {
             annotations,
             doc_comment: comment,
             name,
             variants,
+            type_variables,
         })
     }
 
@@ -130,8 +134,9 @@ where
         while !matches!(self.peek(), Some(Token::RBrace) | Some(Token::Eof) | None) {
             self.parse_variant(&mut variants)?;
             if !matches!(self.peek(), Some(Token::RBrace)) {
-                self.expect_token(Token::Comma)
-                    .map_err(|pos| syntax::Variant::MissingComma(pos.line, pos.col))?;
+                self.expect_token(Token::Comma, |pos| {
+                    syntax::Variant::MissingComma(pos.line, pos.col)
+                })?;
             }
         }
 
@@ -149,8 +154,9 @@ where
                 .parse_properties()
                 .map_err(syntax::Variant::BadProperty)?;
 
-            self.expect_token(Token::RBrace)
-                .map_err(|pos| syntax::Variant::MissingParamEnd(name.clone(), pos.line, pos.col))?;
+            self.expect_token(Token::RBrace, |pos| {
+                syntax::Variant::MissingParamEnd(name.clone(), pos.line, pos.col)
+            })?;
 
             properties
         } else {
@@ -175,12 +181,14 @@ where
         annotations: Vec<Annotation>,
     ) -> Result<Service, syntax::Service> {
         let name = self.expect_name().map_err(syntax::Service::BadName)?;
-        self.expect_token(Token::LBrace)
-            .map_err(|pos| syntax::Service::MissingStart(pos.line, pos.col))?;
+        self.expect_token(Token::LBrace, |pos| {
+            syntax::Service::MissingStart(pos.line, pos.col)
+        })?;
 
         let methods = self.parse_methods().map_err(syntax::Service::BadMethod)?;
-        self.expect_token(Token::RBrace)
-            .map_err(|pos| syntax::Service::MissingEnd(name.clone(), pos.line, pos.col))?;
+        self.expect_token(Token::RBrace, |pos| {
+            syntax::Service::MissingEnd(name.clone(), pos.line, pos.col)
+        })?;
 
         Ok(Service {
             annotations,
@@ -204,15 +212,18 @@ where
         let annotations = self
             .parse_annotations()
             .map_err(syntax::Method::BadAnnotation)?;
-        self.expect_token(Token::Def)
-            .map_err(|pos| syntax::Method::MissingDef(pos.line, pos.col))?;
+        self.expect_token(Token::Def, |pos| {
+            syntax::Method::MissingDef(pos.line, pos.col)
+        })?;
         let name = self.expect_name().map_err(syntax::Method::BadName)?;
-        self.expect_token(Token::LParen)
-            .map_err(|pos| syntax::Method::MissingParamStart(name.clone(), pos.line, pos.col))?;
+        self.expect_token(Token::LParen, |pos| {
+            syntax::Method::MissingParamStart(name.clone(), pos.line, pos.col)
+        })?;
         let properties = self.parse_properties().map_err(syntax::Method::BadParam)?;
 
-        self.expect_token(Token::RParen)
-            .map_err(|pos| syntax::Method::MissingParamEnd(name.clone(), pos.line, pos.col))?;
+        self.expect_token(Token::RParen, |pos| {
+            syntax::Method::MissingParamEnd(name.clone(), pos.line, pos.col)
+        })?;
 
         let return_type = if self.matches(Token::Colon) {
             Some(self.parse_type().map_err(syntax::Method::BadReturnType)?)
@@ -246,13 +257,15 @@ where
         annotations: Vec<Annotation>,
     ) -> Result<Data, syntax::Data> {
         let name = self.expect_name().map_err(syntax::Data::BadName)?;
+        let type_variables = self.parse_type_variable(syntax::Data::BadType)?;
         let mut properties = vec![];
         if self.matches(Token::LBrace) {
             let mut parsed_properties =
                 self.parse_properties().map_err(syntax::Data::BadProperty)?;
             properties.append(&mut parsed_properties);
-            self.expect_token(Token::RBrace)
-                .map_err(|pos| syntax::Data::MissingEnd(name.clone(), pos.line, pos.col))?;
+            self.expect_token(Token::RBrace, |pos| {
+                syntax::Data::MissingEnd(name.clone(), pos.line, pos.col)
+            })?;
         }
 
         Ok(Data {
@@ -260,6 +273,7 @@ where
             doc_comment: comment,
             name,
             properties,
+            type_variables,
         })
     }
 
@@ -268,8 +282,9 @@ where
         while self.matches_property_start() {
             self.parse_property(&mut properties)?;
             if !matches!(self.peek(), Some(Token::RBrace) | Some(Token::RParen)) {
-                self.expect_token(Token::Comma)
-                    .map_err(|pos| syntax::Property::MissingComma(pos.line, pos.col))?;
+                self.expect_token(Token::Comma, |pos| {
+                    syntax::Property::MissingComma(pos.line, pos.col)
+                })?;
             }
         }
 
@@ -283,8 +298,9 @@ where
             .map_err(syntax::Property::BadAnnotation)?;
         if self.matches_property_start() {
             let name = self.expect_name().map_err(syntax::Property::BadName)?;
-            self.expect_token(Token::Colon)
-                .map_err(|pos| syntax::Property::MissingColon(name.clone(), pos.line, pos.col))?;
+            self.expect_token(Token::Colon, |pos| {
+                syntax::Property::MissingColon(name.clone(), pos.line, pos.col)
+            })?;
 
             let type_ = self
                 .parse_type()
@@ -308,6 +324,7 @@ where
             Some(Token::Identifier(_))
                 | Some(Token::Comment(_))
                 | Some(Token::Service)
+                | Some(Token::Hash)
                 | Some(Token::Data)
                 | Some(Token::Def)
                 | Some(Token::Enum)
@@ -335,8 +352,7 @@ where
             while !self.matches(Token::RAngle) {
                 variables.push(self.parse_type()?);
                 if !matches!(self.peek(), Some(Token::RAngle)) {
-                    self.expect_token(Token::Comma)
-                        .map_err(syntax::Type::MissingComma)?;
+                    self.expect_token(Token::Comma, syntax::Type::MissingComma)?;
                 }
             }
         }
@@ -345,7 +361,7 @@ where
         if let Some((region, _)) = questionmark {
             Ok(Type {
                 name: Name {
-                    region: region,
+                    region,
                     value: "Option".to_string(),
                 },
                 variables: vec![type_],
@@ -353,6 +369,28 @@ where
         } else {
             Ok(type_)
         }
+    }
+
+    fn parse_type_variable<F, E>(&mut self, map_err: F) -> Result<Vec<Name>, E>
+    where
+        F: Fn(syntax::Type) -> E,
+    {
+        let mut variables = vec![];
+        if self.matches(Token::LAngle) {
+            while !self.matches(Token::RAngle) {
+                let name = self
+                    .expect_name()
+                    .map_err(|err| map_err(syntax::Type::BadName(err)))?;
+                variables.push(name);
+                if !matches!(self.peek(), Some(Token::RAngle)) {
+                    self.expect_token(Token::Comma, |pos| {
+                        map_err(syntax::Type::MissingComma(pos))
+                    })?;
+                }
+            }
+        }
+
+        Ok(variables)
     }
 
     fn parse_annotations(&mut self) -> Result<Vec<Annotation>, syntax::Annotation> {
@@ -433,12 +471,15 @@ where
         }
     }
 
-    fn expect_token(&mut self, token: Token) -> Result<(), Position> {
+    fn expect_token<F, E>(&mut self, token: Token, err: F) -> Result<(), E>
+    where
+        F: Fn(Position) -> E,
+    {
         match self.advance() {
             Some(Ok((_, tok))) if tok == token => Ok(()),
-            Some(Ok((region, _))) => Err(region.end),
-            Some(Err(bad_token)) => Err(bad_token.position()),
-            None => Err(self.last_position.clone()),
+            Some(Ok((region, _))) => Err(err(region.end)),
+            Some(Err(bad_token)) => Err(err(bad_token.position())),
+            None => Err(err(self.last_position.clone())),
         }
     }
 

@@ -1,0 +1,8 @@
+enum Problem {
+    NotNull,
+}
+
+enum Result<E, A> {
+    Ok { value: A },
+    Err { error: E },
+}

@@ -3,6 +3,7 @@ use std::io;
 use crate::ast::canonical::Module;
 use crate::codegen::command::Command;
 
+mod ast;
 pub mod command;
 mod kotlin;
 mod rust;

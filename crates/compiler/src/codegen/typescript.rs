@@ -106,7 +106,7 @@ fn find_used_types(module: &Module) -> HashSet<String> {
 
 fn collect_type_names(types: &mut HashSet<String>, type_: &Type) {
     match type_ {
-        Type::Ref(name) => {
+        Type::Ref(name, _) => {
             types.insert(name.clone());
         }
         Type::Result(ok_type, error_type) => {
@@ -356,7 +356,7 @@ fn generate_type_ref(package: &String, type_: &Type) -> String {
             let value = generate_type_ref(package, value_type);
             format!("{value} | undefined")
         }
-        Type::Ref(name) => name.clone(),
+        Type::Ref(name, _) => name.clone(),
     }
 }
 
