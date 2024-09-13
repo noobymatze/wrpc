@@ -24,7 +24,7 @@ sealed class {{record.name.value}} {
             is {{ variant.name.value }} -> buildJsonObject {
                 put("@type", "{{ variant.name.value }}")
                 {%- for property in variant.properties %}
-                put("{{ property.name.value }}", {{ property.name.value }})
+                put("{{ property.name.value }}", {{ self::encode_type(property.name.value.as_str(), property.type_) }})
                 {%- endfor %}
             }
             {%- endfor %}

@@ -15,6 +15,27 @@ data class {{record.name.value}}(
         {%- endfor %}
     }
 
+    fun validate(): ErrorBundle {
+        val errors = ErrorBundle()
+        {%- for annotation in record.annotations %}
+        {%- for constraint in annotation.get_constraints() %}
+        if (!({{ self::condition("this", constraint) }})) {
+            errors.error("")
+        }
+        {% endfor %}
+        {% endfor %}
+        {%- for property in record.properties %}
+        {%- for annotation in property.annotations %}
+        {%- for constraint in annotation.get_constraints() %}
+        if (!({{ self::condition("this", constraint) }})) {
+            errors.error(errors.field("{{ property.name.value }}", errors.expect("STRING")))
+        }
+        {% endfor -%}
+        {% endfor -%}
+        {% endfor %}
+        return errors
+    }
+
     companion object {
 
         fun decode(json: JsonElement, errors: ErrorBundle): {{record.name.value}}? {

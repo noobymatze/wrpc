@@ -74,6 +74,25 @@ pub struct Record {
     pub type_variables: Vec<Name>,
 }
 
+impl Record {
+    pub fn get_all_constraints(&self) -> Vec<Constraint> {
+        let mut constraints = vec![];
+        for constraint in &self.annotations {
+            constraints.append(&mut constraint.get_constraints());
+        }
+
+        for constraint in self
+            .properties
+            .iter()
+            .flat_map(|property| &property.annotations)
+        {
+            constraints.append(&mut constraint.get_constraints());
+        }
+
+        constraints
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Property {
     pub annotations: Vec<Annotation>,
@@ -124,6 +143,21 @@ pub struct Service {
     pub comment: Option<String>,
     pub name: Name,
     pub methods: HashMap<String, Method>,
+}
+
+impl Service {
+    /// Returns a list of sorted methods.
+    pub fn get_sorted_methods(&self) -> Vec<&Method> {
+        self.methods
+            .iter()
+            .map(|(_, value)| value)
+            .sorted_by_key(|x| x.name.value.clone())
+            .collect()
+    }
+
+    pub fn get_method_path(&self, method: &Method) -> String {
+        format!("/{}/{}", self.name.value, method.name.value)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

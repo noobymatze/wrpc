@@ -174,7 +174,7 @@ fn parse_constraint(expr: &src::Expr) -> Result<Constraint, canonicalize::Annota
         src::Expr::Symbol(region, value) => {
             if value.starts_with(".") {
                 let (_, value) = value.split_at(1);
-                Constraint::Ref(value.to_owned())
+                Constraint::Access(value.to_owned())
             } else {
                 return Err(canonicalize::Annotation::UnknownSymbol(
                     region.clone(),

@@ -17,7 +17,7 @@ pub enum Constraint {
     String(String),
     Boolean(bool),
     Map(Vec<(Constraint, Constraint)>),
-    Ref(String),
+    Access(String),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
