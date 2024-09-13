@@ -452,14 +452,5 @@ mod tests {
             properties: vec![],
             type_variables: vec![],
         };
-        let result = render_kotlin_stmt(&"".to_string(), &decodeRecord(&record));
-        println!("{}", result);
-    }
-
-    fn decodeRecord(record: &Record) -> Stmt {
-        let name = format!("decode{}", record.name.value);
-        let params = vec![("test".to_string(), Type::Int32)];
-        let return_type = Type::Option(Box::new(Type::Ref(format!("{}", record.name.value))));
-        Stmt::Function(name, params, Some(return_type), vec![])
     }
 }

@@ -4,6 +4,7 @@ use crate::ast::{
     canonical::{Enum, Method, Module, Property, Record, Service, Type, Variant},
     source::Name,
 };
+use askama::Template; // bring trait in scope
 use itertools::Itertools;
 use std::fs::File;
 use std::io::Write;
@@ -82,32 +83,6 @@ pub fn generate_kotlin_server(module: &Module, options: &Options) -> Result<(), 
     }
 
     Ok(())
-}
-
-fn generate_enum(package: &String, record: &Enum) -> String {
-    let is_sealed = !record.is_simple();
-
-    let variants = record
-        .variants
-        .iter()
-        .map(|variant| generate_variant(package, &record.name, variant, is_sealed))
-        .collect::<Vec<String>>()
-        .join("\n");
-
-    let doc_comment = generate_doc_comment("", &record.comment);
-
-    let decode_json = decode_enum(record);
-    let encode_json = encode_enum(record);
-    let name = &record.name.value;
-    let class = if is_sealed {
-        format!("sealed class {name} {{\n\n{variants}\n}}")
-    } else {
-        format!("enum class {name} {{\n{variants}\n}}")
-    };
-
-    println!("{}", encode_json);
-    let file_header = model_header(package, true);
-    format!("{file_header}\n\n{doc_comment}{class}\n\n{decode_json}\n\n{encode_json}")
 }
 
 fn generate_service(package: &String, service: &Service) -> String {
@@ -227,6 +202,56 @@ fn generate_ktor_handler(_record_package: &String, service: &Service, method: &M
     format!("post(\"/{service_name}/{name}\") {{\n{x}\n}}")
 }
 
+fn generate_request(package: &String, method: &Method) -> String {
+    let request_name = method.name.request_name();
+    let properties = method
+        .parameters
+        .iter()
+        .map(|param| Property {
+            annotations: param.annotations.clone(),
+            comment: None,
+            name: param.name.clone(),
+            type_: param.type_.clone(),
+        })
+        .collect::<Vec<Property>>();
+
+    let record = Record {
+        name: Name::from_str(request_name.as_str()),
+        annotations: vec![],
+        comment: None,
+        properties,
+        type_variables: vec![],
+    };
+
+    generate_record(package, &record, false)
+}
+
+fn generate_enum(package: &String, record: &Enum) -> String {
+    let is_sealed = !record.is_simple();
+
+    let variants = record
+        .variants
+        .iter()
+        .map(|variant| generate_variant(package, &record.name, variant, is_sealed))
+        .collect::<Vec<String>>()
+        .join("\n");
+
+    let doc_comment = generate_doc_comment("", &record.comment);
+
+    let decode_json = decode_enum(record);
+    let encode_json = encode_enum(record);
+    let name = &record.name.value;
+    let class = if is_sealed {
+        format!("sealed class {name} {{\n\n{variants}\n}}")
+    } else {
+        format!("enum class {name} {{\n{variants}\n}}")
+    };
+
+    println!("{}", encode_json);
+    let file_header = model_header(package, true);
+    format!("{file_header}\n\n{doc_comment}{class}\n\n{decode_json}\n\n{encode_json}")
+}
+
 fn generate_variant(
     package: &String,
     parent_name: &Name,
@@ -317,31 +342,7 @@ fn model_header(package: &String, imports: bool) -> String {
     .join("\n")
 }
 
-fn generate_request(package: &String, method: &Method) -> String {
-    let request_name = method.name.request_name();
-    let properties = method
-        .parameters
-        .iter()
-        .map(|param| Property {
-            annotations: param.annotations.clone(),
-            comment: None,
-            name: param.name.clone(),
-            type_: param.type_.clone(),
-        })
-        .collect::<Vec<Property>>();
-
-    let record = Record {
-        name: Name::from_str(request_name.as_str()),
-        annotations: vec![],
-        comment: None,
-        properties,
-        type_variables: vec![],
-    };
-
-    generate_record(package, &record, false)
-}
-
-fn generate_type_ref(package: &String, type_: &Type) -> String {
+pub fn generate_type_ref(package: &String, type_: &Type) -> String {
     match type_ {
         Type::String => "kotlin.String".to_string(),
         Type::Boolean => "kotlin.Boolean".to_string(),
@@ -398,50 +399,6 @@ fn generate_doc_comment(indent: &str, comment: &Option<String>) -> String {
             format!("{indent}/**\n{content}\n{indent} */\n")
         }
     }
-}
-
-fn indent_lines(indent: &str, value: String) -> String {
-    value
-        .split("\n")
-        .map(|line| format!("{indent}{line}"))
-        .collect::<Vec<String>>()
-        .join("\n")
-}
-
-fn encode_json_object(name: &String, fields: &Vec<(&Name, &Type)>) -> String {
-    let parsing_fields = fields
-        .iter()
-        .map(|(name, type_)| encode_json_field(&name.value, &name.value, type_))
-        .join("\n");
-
-    [
-        format!("fun encode(): JsonElement = buildJsonObject {{ "),
-        indent_lines("    ", parsing_fields),
-        format!("}}"),
-    ]
-    .join("\n")
-}
-
-fn encode_json_field(name: &String, var_prop: &String, type_: &Type) -> String {
-    format!("put(\"{name}\", {})", encode_type(var_prop, type_))
-}
-
-fn generate_json_functions(package: &String) -> String {
-    let data = include_str!("kotlin/json.kt");
-    format!("package {package}.json\n\n{data}")
-}
-
-fn generate_result_type(package: &String) -> String {
-    let data = include_str!("kotlin/result.kt");
-    let imports = r#"
-import io.noobymatze.ruff.generated.json.*
-import kotlinx.serialization.json.*
-    "#;
-    format!("package {package}.models{imports}\n\n{data}")
-}
-
-fn validate_value(record: &Record) -> String {
-    "".to_string()
 }
 
 // JSON ENCODE
@@ -767,6 +724,26 @@ fn decode_fields(
         .join("\n\n")
 }
 
+fn decode_property(indent: &str, var_object: &str, var_error: &str, property: &Property) -> String {
+    let var_name = &property.name.value;
+    let field_name = &property.name.value;
+    let var_field = format!("{var_name}Field");
+
+    [
+        format!("{indent}val {var_field} = {var_object}[\"{field_name}\"]"),
+        decode_type(
+            indent,
+            &var_field,
+            var_name,
+            &var_error.to_string(),
+            &property.type_,
+            true,
+            |err| format!("errors.field(\"{field_name}\", {err})"),
+        ),
+    ]
+    .join("\n")
+}
+
 fn decode_field(
     indent: &str,
     var_object: &String,
@@ -926,6 +903,32 @@ where
     }
 }
 
+fn indent_lines(indent: &str, value: String) -> String {
+    value
+        .split("\n")
+        .map(|line| format!("{indent}{line}"))
+        .collect::<Vec<String>>()
+        .join("\n")
+}
+
+fn generate_json_functions(package: &String) -> String {
+    let data = include_str!("kotlin/json.kt");
+    format!("package {package}.json\n\n{data}")
+}
+
+fn generate_result_type(package: &String) -> String {
+    let data = include_str!("kotlin/result.kt");
+    let imports = r#"
+import io.noobymatze.ruff.generated.json.*
+import kotlinx.serialization.json.*
+    "#;
+    format!("package {package}.models{imports}\n\n{data}")
+}
+
+fn validate_value(record: &Record) -> String {
+    "".to_string()
+}
+
 fn render(constraint: &Constraint, property: &Option<Property>) -> String {
     match constraint {
         Constraint::Lt(constraints) => {
@@ -1039,6 +1042,20 @@ fn parenthesize(values: &Vec<String>, op: &str) -> String {
     stack.pop().unwrap()
 }
 
+#[derive(Template)]
+#[template(path = "kotlin/record.kt", escape = "txt")]
+struct RecordTemplate<'a> {
+    record: &'a Record,
+    package: &'a String,
+}
+
+#[derive(Template)]
+#[template(path = "kotlin/enum.kt", escape = "txt")]
+struct EnumTemplate<'a> {
+    record: &'a Enum,
+    package: &'a String,
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -1048,11 +1065,12 @@ mod tests {
     use crate::ast::source::Name;
     use crate::codegen::kotlin::{
         decode_enum, decode_field, decode_record, decode_type, generate_kotlin_server,
-        generate_record, parenthesize, render, Options,
+        generate_record, parenthesize, render, EnumTemplate, Options, RecordTemplate,
     };
     use crate::error::Error;
     use crate::reporting::Region;
     use crate::{compile, parse};
+    use askama::Template; // bring trait in scope
 
     #[test]
     fn test() -> Result<(), Error> {
@@ -1085,10 +1103,20 @@ mod tests {
         let result = module.records.get("Address").expect("Get Address");
         let login_result = module.enums.get("LoginResult").expect("Get LoginResult");
         let country = module.enums.get("Country").expect("Get Country");
+        let package = "test".to_string();
 
-        println!("{}", decode_enum(&login_result));
-        println!("{}", decode_enum(&country));
-        println!("{}", generate_record(&"test".to_string(), &result, true));
+        let record_template = RecordTemplate {
+            record: result,
+            package: &package,
+        };
+        println!("{}", record_template.render().unwrap());
+        println!("{}", generate_record(&package, result, true));
+
+        let enum_template = EnumTemplate {
+            record: login_result,
+            package: &package,
+        };
+        println!("{}", enum_template.render().unwrap());
 
         Ok(())
     }
