@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::source::Name;
 use crate::reporting::Region;
@@ -72,25 +72,6 @@ pub struct Record {
     pub name: Name,
     pub properties: Vec<Property>,
     pub type_variables: Vec<Name>,
-}
-
-impl Record {
-    pub fn get_all_constraints(&self) -> Vec<Constraint> {
-        let mut constraints = vec![];
-        for constraint in &self.annotations {
-            constraints.append(&mut constraint.get_constraints());
-        }
-
-        for constraint in self
-            .properties
-            .iter()
-            .flat_map(|property| &property.annotations)
-        {
-            constraints.append(&mut constraint.get_constraints());
-        }
-
-        constraints
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

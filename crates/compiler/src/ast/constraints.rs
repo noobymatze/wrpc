@@ -42,51 +42,12 @@ pub enum Expr {
     Symbol(String),
 }
 
-fn kt(expr: &Expr, indent: &str) -> Result<String, ()> {
-    match expr {
-        Expr::And(expressions) => {
-            if expressions.is_empty() {
-                return Err(());
-            } else {
-                let mut result = vec![];
-                for expr in expressions {
-                    result.push(kt(expr, "")?);
-                }
-
-                Ok(result.join(" && "))
-            }
-        }
-        Expr::Or(_) => todo!(),
-        Expr::Xor(_) => todo!(),
-        Expr::Eq(_) => todo!(),
-        Expr::Lt(_) => todo!(),
-        Expr::Le(_) => todo!(),
-        Expr::Gt(_) => todo!(),
-        Expr::Ge(_) => todo!(),
-        Expr::Len(_) => todo!(),
-        Expr::Not(_) => todo!(),
-        Expr::If(_, _, _) => todo!(),
-        Expr::Let(_, _) => todo!(),
-        Expr::Number(_) => todo!(),
-        Expr::String(_) => todo!(),
-        Expr::Boolean(bool) => Ok(format!("{}", bool)),
-        Expr::Map(_) => todo!(),
-        Expr::Get(_, _) => todo!(),
-        Expr::Symbol(value) => Ok(format!("{value}")),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::ast::constraints::Expr;
 
-    use super::kt;
-
     #[test]
-    fn test() {
-        let expr = Expr::And(vec![Expr::Boolean(true), Expr::Boolean(true)]);
-        println!("{:?}", kt(&expr, ""));
-    }
+    fn test() {}
 }
 
 // Impl

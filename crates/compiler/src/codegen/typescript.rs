@@ -2,6 +2,7 @@ use crate::ast::{
     canonical::{Enum, Method, Module, Parameter, Property, Record, Service, Type, Variant},
     source::Name,
 };
+use askama::Template;
 use itertools::Itertools;
 use std::collections::HashSet;
 use std::fs::File;
@@ -18,7 +19,7 @@ pub struct Options {
 pub fn generate_typescript_client(module: &Module, options: &Options) -> Result<(), io::Error> {
     let record_package = "records".to_string();
     let models = generate_models(&record_package, module);
-    let client = generate_client_and_services(&record_package, module);
+    let client = generate_client(&record_package, module);
 
     if options.print {
         println!("{}", models);
@@ -67,26 +68,6 @@ export type Result<T, E>
     format!("{result_type}\n{records}\n\n{enums}\n")
 }
 
-fn generate_client_and_services(package: &String, module: &Module) -> String {
-    let interfaces = module
-        .services
-        .iter()
-        .map(|(_, service)| generate_service_interface(&package, service))
-        .collect::<Vec<String>>()
-        .join("\n\n");
-
-    let imports = find_used_types(module).iter().join(", ");
-
-    [
-        format!("import {{ {imports} }} from './models.ts';\n"),
-        format!("{}\n", interfaces),
-        format!("{}\n", generate_client(&package, module)),
-        format!("{}", generate_service(&package, module)),
-        format!("{}", generate_rpc_fn()),
-    ]
-    .join("\n")
-}
-
 fn find_used_types(module: &Module) -> HashSet<String> {
     let mut result = HashSet::new();
     for (_, service) in &module.services {
@@ -132,185 +113,27 @@ fn collect_type_names(types: &mut HashSet<String>, type_: &Type) {
 }
 
 fn generate_record(package: &String, record: &Record) -> String {
-    let properties = record
-        .properties
-        .iter()
-        .map(|property| generate_property("    ", package, property))
-        .collect::<Vec<String>>()
-        .join("\n");
-
-    let name = record.name.value.clone();
-    let class = format!("export type {name} = {{\n{properties}\n}}",);
-
-    let doc_comment = generate_doc_comment("", &record.comment);
-    format!("{doc_comment}{class}")
-}
-
-fn generate_property(indent: &str, package: &String, property: &Property) -> String {
-    let name = property.name.value.clone();
-    let type_ = generate_type_ref(package, &property.type_);
-    format!("{indent}{name}: {type_},")
+    RecordTemplate { package, record }
+        .render()
+        .expect("Render generate record should work.")
 }
 
 fn generate_enum(package: &String, record: &Enum) -> String {
-    let is_sealed = record
-        .variants
-        .iter()
-        .any(|variant| !variant.properties.is_empty());
-
-    let variants = record
-        .variants
-        .iter()
-        .map(|variant| generate_variant(package, &record.name, variant, is_sealed))
-        .join("\n");
-
-    let doc_comment = generate_doc_comment("", &record.comment);
-
-    let class = if is_sealed {
-        let name = record.name.value.clone();
-        format!("export type {name} = \n{variants}")
-    } else {
-        let name = record.name.value.clone();
-        format!("export enum {name} {{\n{variants}\n}}")
-    };
-
-    format!("{doc_comment}{class}")
+    EnumTemplate { package, record }
+        .render()
+        .expect("Should render Enum")
 }
 
-fn generate_variant(
-    package: &String,
-    parent_name: &Name,
-    variant: &Variant,
-    is_sealed: bool,
-) -> String {
-    //let doc_comment = generate_doc_comment("    ", &variant.comment);
-    let variant = if is_sealed {
-        generate_sealed_sub_class(package, parent_name, variant)
-    } else {
-        let name = variant.name.value.clone();
-        format!("    {name} = '{name}',")
-    };
+fn generate_client(package: &String, module: &Module) -> String {
+    let imports = find_used_types(module).iter().join(", ");
 
-    format!("{variant}")
-}
-
-fn generate_sealed_sub_class(package: &String, _parent_name: &Name, variant: &Variant) -> String {
-    let properties = variant
-        .properties
-        .iter()
-        .map(|property| generate_property("", package, property))
-        .collect::<Vec<String>>()
-        .join(" ");
-
-    let name = variant.name.value.clone();
-    format!("    | {{ type: '{name}', {properties} }}")
-}
-
-fn generate_client(_package: &String, module: &Module) -> String {
-    let client_type = module
-        .services
-        .iter()
-        .map(|(_, service)| {
-            let name = service.name.uncapitalized();
-            let service_client = service.name.value.clone();
-            format!("    {name}: {service_client},")
-        })
-        .join("\n");
-    let comment = generate_doc_comment("", &Some("Represents a Client, which can be used to work with the corresponding server instance.".to_string()));
-    format!("{comment}export type Client = {{\n{client_type}\n}}")
-}
-
-fn generate_service_interface(package: &String, service: &Service) -> String {
-    let methods = service
-        .methods
-        .iter()
-        .map(|(_, method)| generate_method_signature(package, &method))
-        .join("\n");
-
-    let requests = service
-        .methods
-        .iter()
-        .map(|(_, method)| generate_request(package, &method))
-        .join("\n\n");
-
-    let comment = generate_doc_comment("", &service.comment);
-    let name = service.name.capitalized();
-    [
-        format!("{requests}"),
-        format!("{comment}export interface {name} {{\n{methods}\n}}"),
-    ]
-    .join("\n\n")
-}
-
-fn generate_method_signature(package: &String, method: &Method) -> String {
-    let name = method.name.uncapitalized();
-    let request_name = method.name.request_name();
-    let return_type = method
-        .return_type
-        .as_ref()
-        .map(|type_| generate_type_ref(package, &type_))
-        .unwrap_or("void".to_string());
-
-    let comment = generate_doc_comment("    ", &method.comment);
-    format!(
-        "{comment}    {name}: (params: {request_name}) => Promise<HttpResponse<{return_type}>>;"
-    )
-}
-
-fn generate_param_property(indent: &str, package: &String, property: &Parameter) -> String {
-    let name = property.name.value.clone();
-    let type_ = generate_type_ref(package, &property.type_);
-    format!("{indent}{name}: {type_},")
-}
-
-fn generate_service(package: &String, module: &Module) -> String {
-    let impls = module
-        .services
-        .iter()
-        .map(|(_, service)| {
-            let name = service.name.uncapitalized();
-            let methods = service
-                .methods
-                .iter()
-                .map(|(_, method)| generate_method(package, service, &method))
-                .join(",\n");
-
-            format!("        {name}: {{\n{methods}\n        }}")
-        })
-        .join(",\n");
-
-    format!(
-        "export function client(baseUrl: string): Client {{\n    return {{\n{impls}\n    }}; \n}}"
-    )
-}
-
-fn generate_request(package: &String, method: &Method) -> String {
-    let request_name = method.name.request_name();
-    let properties = method
-        .parameters
-        .iter()
-        .map(|property| generate_param_property("    ", package, property))
-        .join("\n");
-
-    format!("export type {request_name} = {{\n{properties}\n}}")
-}
-
-fn generate_method(package: &String, service: &Service, method: &Method) -> String {
-    let service_name = service.name.value.clone();
-    let method_name = method.name.value.clone();
-    let name = method.name.uncapitalized();
-    let request_name = method.name.request_name();
-
-    let return_type = method
-        .return_type
-        .as_ref()
-        .map(|type_| generate_type_ref(package, &type_))
-        .unwrap_or("void".to_string());
-
-    let indent = "            ";
-    format!(
-        "{indent}{name}: request<{request_name}, {return_type}>(baseUrl, \"/{service_name}/{method_name}\")"
-    )
+    ServiceTemplate {
+        package: package,
+        services: &module.get_sorted_services(),
+        imports: &imports,
+    }
+    .render()
+    .expect("Should render Client")
 }
 
 fn generate_doc_comment(indent: &str, comment: &Option<String>) -> String {
@@ -321,7 +144,7 @@ fn generate_doc_comment(indent: &str, comment: &Option<String>) -> String {
                 .split("\n")
                 .map(|line| format!("{indent} * {line}"))
                 .join("\n");
-            format!("{indent}/**\n{content}\n{indent} */\n")
+            format!("{indent}/**\n{content}\n{indent} */")
         }
     }
 }
@@ -360,68 +183,125 @@ fn generate_type_ref(package: &String, type_: &Type) -> String {
     }
 }
 
-fn generate_rpc_fn() -> String {
-    r#"
-/**
- * Represents an http response.
- */
-export type HttpResponse<T>
-    = { type: 'Ok'; value: T; }
-    | { type: 'Err'; error: HttpError; }
-
-/**
- * Represents any error, that could happen during a request.
- */
-export type HttpError
-    = { type: 'Network', }
-    | { type: 'Timeout', }
-    | { type: 'BadUrl', }
-    | { type: 'BadStatus', headers: Headers, body: string }
-    | { type: 'BadBody', };
-
-/**
- * Returns a function, that can be used to call the given method
- * for an rpc.
- *
- * @param baseUrl
- * @param path
- */
-function request<Params, Ret>(
-    baseUrl: string,
-    path: string,
-): (params: Params) => Promise<HttpResponse<Ret>> {
-    return async (params) => {
-        try {
-            const response = await fetch(`${baseUrl}${path}`, {
-                method: "POST",
-                body: JSON.stringify(params),
-                headers: {
-                    "Content-Type": "application/json",
-                },
-            });
-
-            try {
-                if (!response.ok) {
-                    const statusCode = response.status;
-                    const body = await response.text();
-                    const headers = response.headers;
-                    return {type: 'Err', error: {type: 'BadStatus', statusCode, headers, body}};
-                }
-
-                const value = await response.json();
-                return {type: 'Ok', value };
-            } catch (error) {
-                return {type: 'Err', error: {type: 'BadBody'}};
-            }
-        } catch (error) {
-            if (error instanceof DOMException && error.message === 'Timeout') {
-                return {type: 'Err', error: {type: 'Timeout'}};
-            }
-
-            return {type: 'Err', error: {type: 'Network'}};
-        }
-    };
+#[derive(Template)]
+#[template(path = "typescript/record.ts", escape = "txt")]
+struct RecordTemplate<'a> {
+    record: &'a Record,
+    package: &'a String,
 }
-"#
-    .to_string()
+
+#[derive(Template)]
+#[template(path = "typescript/enum.ts", escape = "txt")]
+struct EnumTemplate<'a> {
+    record: &'a Enum,
+    package: &'a String,
+}
+
+#[derive(Template)]
+#[template(path = "typescript/client.ts", escape = "txt")]
+struct ServiceTemplate<'a> {
+    services: &'a Vec<&'a Service>,
+    package: &'a String,
+    imports: &'a String,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        codegen::typescript::{EnumTemplate, RecordTemplate, ServiceTemplate},
+        compile,
+        error::Error,
+    };
+    use askama::Template;
+
+    #[test]
+    fn test() -> Result<(), Error> {
+        let spec = r#"
+            // Dies ist ein Test.
+            data Address {
+                #(check (not (blank .name)))
+                street: String,
+                houseNo: Int32,
+                #(check
+                    (or (and (= .country "DE") (= (len .zipcode) 5))
+                        (and (= .country "CH") (= (len .zipcode) 4))))
+                zipcode: String,
+                #(check (or (= .country "DE") (= .country "CH")))
+                country: String,
+            }
+
+            enum LoginResult {
+                Hello { name: String },
+                Test { name: String },
+            }
+
+            enum Country {
+                DE,
+                EN,
+                CH,
+            }
+
+            // The [SessionService] manages sessions and allows a
+            // user to login.
+            service SessionService {
+
+                // Signs in a user based on the given [Credentials](#Credentials).
+                def login(credentials: Credentials, name: String): Greet
+
+                // Sign out the given session via the given SessionId.
+                def logout(session: SessionId): Result<Error, Greet>
+
+            }
+        "#;
+
+        let module = compile(None, spec)?;
+        let result = module.records.get("Address").expect("Get Address");
+        let login_result = module.enums.get("LoginResult").expect("Get LoginResult");
+        let country = module.enums.get("Country").expect("Get Country");
+        let session_service = module
+            .services
+            .get("SessionService")
+            .expect("Get SessionService");
+        let package = "test".to_string();
+
+        //println!("{}", validate_value("", "test", "errors", &vec![leq]));
+        let foo = RecordTemplate {
+            package: &package,
+            record: result,
+        }
+        .render()
+        .unwrap();
+
+        println!("{}", foo);
+
+        let foo = EnumTemplate {
+            package: &package,
+            record: login_result,
+        }
+        .render()
+        .unwrap();
+
+        println!("{}", foo);
+
+        let foo = EnumTemplate {
+            package: &package,
+            record: country,
+        }
+        .render()
+        .unwrap();
+
+        println!("{}", foo);
+
+        let foo = ServiceTemplate {
+            package: &package,
+            services: &vec![&session_service],
+            imports: &"".to_string(),
+        }
+        .render()
+        .unwrap();
+
+        println!("{}", foo);
+
+        Ok(())
+    }
 }
