@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -18,6 +20,42 @@ pub enum Constraint {
     Boolean(bool),
     Map(Vec<(Constraint, Constraint)>),
     Access(String),
+}
+
+impl Constraint {
+    /// Collect all properties this constraint depends on.
+    ///
+    /// This might include the property, that this constraint is
+    /// attached to, itself. It needs to be excluded after calling this function.
+    pub fn collect_accessed_deps(&self, deps: &mut HashSet<String>) {
+        match self {
+            Constraint::Access(name) => {
+                deps.insert(name.clone());
+            }
+            Constraint::Or(constraints)
+            | Constraint::Lt(constraints)
+            | Constraint::Eq(constraints)
+            | Constraint::Le(constraints)
+            | Constraint::Gt(constraints)
+            | Constraint::Ge(constraints)
+            | Constraint::And(constraints)
+            | Constraint::Xor(constraints) => {
+                for constraint in constraints {
+                    constraint.collect_accessed_deps(deps);
+                }
+            }
+            Constraint::Len(boxed) | Constraint::Blank(boxed) | Constraint::Not(boxed) => {
+                boxed.collect_accessed_deps(deps);
+            }
+            Constraint::Map(pairs) => {
+                for (key, value) in pairs {
+                    key.collect_accessed_deps(deps);
+                    value.collect_accessed_deps(deps);
+                }
+            }
+            Constraint::Number(_) | Constraint::String(_) | Constraint::Boolean(_) => {}
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

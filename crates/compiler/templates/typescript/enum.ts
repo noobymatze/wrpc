@@ -8,11 +8,11 @@ export type {{ record.name.value }} =
         {{property.name.value}}: {{ self::generate_type_ref(package, property.type_) }};
     {%- endfor %}
       }
-    {%- endfor %}
+    {%- endfor %};
 {% else %}
 {{ self::generate_doc_comment("", record.comment) }}
 export type {{ record.name.value }} =
     {%- for variant in record.variants %}
     | "{{ variant.name.value}}"
-    {%- endfor %}
+    {%- endfor %};
 {% endif %}

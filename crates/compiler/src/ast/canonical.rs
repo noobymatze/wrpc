@@ -67,16 +67,36 @@ impl Module {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Record {
-    pub annotations: Vec<Annotation>,
+    pub annotations: Vec<Expr>,
+    pub constraints: Vec<Constraint>,
+    pub property_validation_order: Vec<String>,
     pub comment: Option<String>,
     pub name: Name,
     pub properties: Vec<Property>,
     pub type_variables: Vec<Name>,
 }
 
+impl Record {
+    pub fn get_validation_ordered_properties(&self) -> Vec<&Property> {
+        let mut result = vec![];
+        // This is super inefficient, but we don't care for now
+        for prop_name in &self.property_validation_order {
+            for property in &self.properties {
+                if *prop_name == *property.name.value {
+                    result.push(property);
+                    break;
+                }
+            }
+        }
+
+        result
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Property {
-    pub annotations: Vec<Annotation>,
+    pub annotations: Vec<Expr>,
+    pub constraints: Vec<Constraint>,
     pub comment: Option<String>,
     pub name: Name,
     pub type_: Type,
@@ -84,7 +104,8 @@ pub struct Property {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Enum {
-    pub annotations: Vec<Annotation>,
+    pub annotations: Vec<Expr>,
+    pub constraints: Vec<Constraint>,
     pub comment: Option<String>,
     pub name: Name,
     pub variants: Vec<Variant>,
@@ -112,7 +133,8 @@ impl Enum {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Variant {
-    pub annotations: Vec<Annotation>,
+    pub annotations: Vec<Expr>,
+    pub constraints: Vec<Constraint>,
     pub comment: Option<String>,
     pub name: Name,
     pub properties: Vec<Property>,
@@ -120,7 +142,7 @@ pub struct Variant {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Service {
-    pub annotations: Vec<Annotation>,
+    pub annotations: Vec<Expr>,
     pub comment: Option<String>,
     pub name: Name,
     pub methods: HashMap<String, Method>,
@@ -143,7 +165,7 @@ impl Service {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Method {
-    pub annotations: Vec<Annotation>,
+    pub annotations: Vec<Expr>,
     pub name: Name,
     pub comment: Option<String>,
     pub parameters: Vec<Parameter>,
@@ -153,7 +175,8 @@ pub struct Method {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Parameter {
     pub comment: Option<String>,
-    pub annotations: Vec<Annotation>,
+    pub constraints: Vec<Constraint>,
+    pub annotations: Vec<Expr>,
     pub name: Name,
     pub type_: Type,
 }
@@ -172,21 +195,6 @@ pub enum Type {
     Set(Box<Type>),
     Option(Box<Type>),
     Ref(String, Vec<Type>),
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum Annotation {
-    Check(Vec<Constraint>),
-    Custom(Expr),
-}
-
-impl Annotation {
-    pub fn get_constraints(&self) -> Vec<Constraint> {
-        match self {
-            Annotation::Check(constraints) => constraints.clone(),
-            Annotation::Custom(_) => vec![],
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

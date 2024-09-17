@@ -17,21 +17,19 @@ data class {{record.name.value}}(
 
     fun validate(): ErrorBundle {
         val errors = ErrorBundle()
-        {%- for annotation in record.annotations %}
-        {%- for constraint in annotation.get_constraints() %}
-        if (!({{ self::condition("this", constraint) }})) {
-            errors.error("")
-        }
-        {% endfor %}
-        {% endfor %}
-        {%- for property in record.properties %}
-        {%- for annotation in property.annotations %}
-        {%- for constraint in annotation.get_constraints() %}
-        if (!({{ self::condition("this", constraint) }})) {
+        {%- for property in record.get_validation_ordered_properties() %}
+        {%- for constraint in property.constraints %}
+        val is{{ property.name.capitalized() }}Valid = {{ self::condition("this", constraint) }}
+        if (!is{{ property.name.capitalized()}}Valid) {
             errors.error(errors.field("{{ property.name.value }}", errors.expect("STRING")))
         }
         {% endfor -%}
-        {% endfor -%}
+        {% endfor %}
+
+        {%- for constraint in record.constraints %}
+        if (!({{ self::condition("this", constraint) }})) {
+            errors.error("")
+        }
         {% endfor %}
         return errors
     }
