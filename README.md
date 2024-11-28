@@ -1,33 +1,40 @@
-# wrpc
+:sunny: :cloud: :construction_worker_man: :construction::construction::construction::construction::construction::construction:
 
-wrpc is a language for describing APIs. It can be used to generate clients,
-server interfaces (including validation), documentation, mock services and
-tests.
+# wRPC
+
+wRPC might be at some undefined point in the future an interface
+description language (IDL) for describing APIs, much like
+[OpenAPI][openapi] or [gRPC][grpc]. At that undefined point in the
+future it can be used to generate clients, server interfaces
+(including validation), documentation, mock services and run tests.
 
 
 ## Why should you care?
 
-Perhaps you have also been part of endless meetings about specifying an HTTP
-API (or REST API if you will), with different people having different opinions
-about how URLs should look like, what constitutes a RESTful API, which status
-codes are appropriate for which failure modes. Disagreements about a particular
-status code for a particular failure mode, people getting angry at each other,
-because while they do agree, that the right status code is "obvious", they just
-don't agree on the status code. Product people trying to throw in additional
-constraints until you try to defuse the situation by half jokingly suggesting
-to use the 418 status code, at which point all involved turn to you as their
-common enemy.
+Perhaps you have also been part of endless meetings about specifying
+an HTTP API (or REST API if you will), with different people having
+different opinions about how URLs should look like, what constitutes a
+RESTful API, which status codes are appropriate for which failure
+modes. Disagreements about a particular status code for a particular
+failure mode, people getting angry at each other, because while they
+do agree, that the right status code is "obvious", they just don't
+agree on the specific status code. Product people trying to throw in
+additional constraints until you try to defuse the situation by half
+jokingly suggesting to use the 418 status code, at which point all
+involved turn to you as their common enemy.
 
-I might have been slightly exaggerating that last part. However, the reality
-is, that in those kinds of meetings we are so often discussing the unimportant
-minutiae. We are not discussing what the service should do or what the actual
-failure modes could be, but how to translate these failure modes into a
-technical standard. Yes, that's part of our job, but we can also go just too
-far. I can't imagine 
+I might have been slightly exaggerating that last part. However, the
+reality is, that in those kinds of meetings we are so often discussing
+the unimportant minutiae. We are not discussing what the service
+should do or what the actual failure modes could be, but how to
+translate the failure modes into a technical standard. Yes, that's
+part of our job, but should not be part of that kind of meeting.
 
-I envision a meeting like that, where backend and frontend developers and
-product people describe the contract in unison and then frontend developers
-generate heaps of code to 
+I envision a meeting like that, where backend, frontend and product
+people describe the contract in unison and then frontend developers
+generate heaps of code to interface with the backend server and
+backend developers generate heaps of code to interface with the
+frontend and they can just implement it.
 
 ## Example
 
@@ -87,11 +94,12 @@ enum PaymentMethod {
     },
     Sepa { 
         iban: String,
-    }
+    },
 }
 ```
 
-On the wire an instance of this enum will be converted to the following representation:
+On the wire, an instance of this enum will be converted to the
+following representation:
 
 ```json
 { 
@@ -117,8 +125,8 @@ On the wire an instance of this enum will be converted to the following represen
 }
 ```
 
-Since `@type` is not a valid identifier in the wrpc language its usage as a
-discriminator is safe.
+Since `@type` is not a valid identifier in the wRPC language, its
+usage as a discriminator is safe.
 
 Enums can also be defined without any associated data.
 
@@ -135,11 +143,14 @@ In this case the wire representation will look like the following:
 "Admin"
 ```
 
+If at least one variant of an `enum` contains associated data, a
+discriminator is used for every variant.
+
 
 ### Service
 
-A `Service` defines a set of methods, the server has to implement to serve to a
-client.
+A `Service` defines a set of methods, the server has to implement to
+serve to a client.
 
 ```wrpc
 service PersonService {
@@ -162,7 +173,7 @@ A `Result` can be defined as follows in wrpc:
 ```rust
 enum Result<E, A> {
     Ok { value: A },
-    Err { error: E },
+    Err { error: E },
 }
 ```
 
@@ -171,25 +182,41 @@ will be an extra one generated.
 
 #### List<A>
 
-A `List` represents a sequence of values.
+A `List<A>` represents a sequence of values of type `A`. A list will
+be represented on the wire as 
+
+```rust
+[1, 2, 3]
+```
 
 
 ## Protocol
 
+TODO
+
 ## Comparison
+
+TODO
 
 ### OpenAPI
 
-OpenAPI is the de-facto standard for generating 
+TODO
 
 ### gRPC
 
+TODO
+
 ### Smithy
+
+TODO
 
 ### Typespec
 
+TODO
 
 
 [smithy]: https://smithy.io/2.0/index.html
 [grpc]: https://grpc.io/
 [typespec]: https://typespec.io/
+[openapi]: https://www.openapis.org/
+
