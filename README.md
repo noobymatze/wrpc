@@ -2,14 +2,32 @@
 
 # wRPC
 
-wRPC might be at some undefined point in the future an interface
+At some undefined point in the future, wRPC might be an interface
 description language (IDL) for describing APIs, much like
 [OpenAPI][openapi] or [gRPC][grpc]. At that undefined point in the
-future it can be used to generate clients, server interfaces
-(including validation), documentation, mock services and run tests.
+future it might be used to generate clients, server interfaces
+(including validation), documentation, run mock servers and even run
+tests.
+
+## Example
+
+Here is 
+
+```wrpc
+// This is a `Person`.
+data Person {
+    name: String,
+    age: Int?,
+}
+
+// This is a service working with persons.
+service PersonService {
+    def get(id: Int64): Person?
+}
+```
 
 
-## Why should you care?
+## Why another one?
 
 Perhaps you have also been part of endless meetings about specifying
 an HTTP API (or REST API if you will), with different people having
@@ -28,26 +46,14 @@ reality is, that in those kinds of meetings we are so often discussing
 the unimportant minutiae. We are not discussing what the service
 should do or what the actual failure modes could be, but how to
 translate the failure modes into a technical standard. Yes, that's
-part of our job, but should not be part of that kind of meeting.
+part of our job, but I don't think it should be and especially not
+during that kind of meeting.
 
 I envision a meeting like that, where backend, frontend and product
 people describe the contract in unison and then frontend developers
 generate heaps of code to interface with the backend server and
 backend developers generate heaps of code to interface with the
 frontend and they can just implement it.
-
-## Example
-
-```wrpc
-enum PaymentMethod {
-    Credit { 
-        #(check (not blank) (< .length 120))
-        name: String 
-    },
-    PayPal,
-}
-```
-
 
 ## Language
 
