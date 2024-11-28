@@ -11,13 +11,13 @@ tests.
 
 ## Example
 
-Here is 
+Here is a small example, just defining an API for a `PersonService`.
 
 ```wrpc
 // This is a `Person`.
 data Person {
     name: String,
-    age: Int?,
+    age: Int32?,
 }
 
 // This is a service working with persons.
@@ -26,6 +26,25 @@ service PersonService {
 }
 ```
 
+Generating server code for the Kotlin language, this will result in
+the following code (comments would be generated as doc comments,
+ignoring them for brevity).
+
+```kotlin
+data class Person(val name: String, val age: Int?)
+
+interface PersonService {
+    fun get(id: Int64): Person?
+    
+    companion object {
+        fun Routing.service(personService: PersonService) {
+            post("/PersonService/get") {
+                ...
+            }
+        }
+    }
+}
+```
 
 ## Why another one?
 
