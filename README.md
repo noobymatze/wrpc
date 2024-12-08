@@ -34,8 +34,10 @@ data Person {
 // This is a doc comment for a service working with persons.
 service PersonService {
     #(test 
-        (let (person (random Person)))
-            (= person (get (:id (insert person)))))
+        (let (person (random PersonData)
+              inserted (insert person)
+              result (get (.id inserted)))
+          (= person (.data result))))
     def get(id: Int64): Person?
 
     def insert(person: PersonData): Person
