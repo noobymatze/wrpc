@@ -28,25 +28,6 @@ service PersonService {
 }
 ```
 
-Generating server code for the Kotlin language, this will result in
-the following code (comments would be generated as doc comments,
-ignoring them for brevity).
-
-```kotlin
-data class Person(val name: String, val age: Int?)
-
-interface PersonService {
-    fun get(id: Int64): Person?
-    
-    companion object {
-        fun Routing.service(personService: PersonService) {
-            post("/PersonService/get") {
-                ...
-            }
-        }
-    }
-}
-```
 
 ## Why another one?
 
@@ -66,15 +47,17 @@ I might have been slightly exaggerating that last part. However, the
 reality is, that in those kinds of meetings we are so often discussing
 the unimportant minutiae. We are not discussing what the service
 should do or what the actual failure modes could be, but how to
-translate the failure modes into a technical standard. Yes, that's
-part of our job, but I don't think it should be and especially not
-during that kind of meeting.
+translate those failure modes into a technical standard. Yes, that's
+part of our job, but I don't think it should be to that extend and
+especially not during that kind of meeting.
 
 I envision a meeting like that, where backend, frontend and product
 people describe the contract in unison and then frontend developers
 generate heaps of code to interface with the backend server and
 backend developers generate heaps of code to interface with the
 frontend and than just get on with their lives.
+
+TODO: Why not OpenAPI or gRPC.
 
 ## Language
 
