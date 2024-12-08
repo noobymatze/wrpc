@@ -13,21 +13,34 @@ tests.
 
 ## Example
 
-Here is a small example, just defining an API for a `PersonService`.
+Here is a small example, just defining an API for a
+`PersonService`. This is more of a vision, than some fully working
+example.
 
 ```wrpc
 // This is a `Person`.
-data Person {
+data PersonData {
+    #(check (not blank) (<= len 5))
     name: String,
+    #(check (>= 18) (<= 130))
     age: Int32?,
 }
 
-// This is a service working with persons.
+data Person {
+    id: Int64,
+    data: PersonData,
+}
+
+// This is a doc comment for a service working with persons.
 service PersonService {
+    #(test 
+        (let (person (random Person)))
+            (= person (get (:id (insert person)))))
     def get(id: Int64): Person?
+
+    def insert(person: PersonData): Person
 }
 ```
-
 
 ## Why another one?
 
@@ -49,15 +62,22 @@ the unimportant minutiae. We are not discussing what the service
 should do or what the actual failure modes could be, but how to
 translate those failure modes into a technical standard. Yes, that's
 part of our job, but I don't think it should be to that extend and
-especially not during that kind of meeting.
+especially not during that kind of meeting. Also, just describing an
+API without the help of continually generating server and client code,
+to keep them in sync is unnecessarily tedious. Our job is to automate
+everything, why aren't we?
 
-I envision a meeting like that, where backend, frontend and product
-people describe the contract in unison and then frontend developers
-generate heaps of code to interface with the backend server and
-backend developers generate heaps of code to interface with the
-frontend and than just get on with their lives.
+I envision a meeting, where backend, frontend and product people
+describe the contract in unison in this language and then frontend
+developers generate heaps of code to interface with the backend server
+and backend developers generate heaps of code to interface with the
+frontend and some developer may even generate heaps of documentation
+for product people and than all involved just get on with their lives.
 
 TODO: Why not OpenAPI or gRPC.
+
+One unified CLI, no custom templates (they always end up in more
+discussion), no YAML, good support for union types, to be continued.
 
 ## Language
 
