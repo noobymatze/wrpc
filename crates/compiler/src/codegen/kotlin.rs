@@ -1,14 +1,11 @@
 use crate::ast::canonical::Parameter;
+use crate::ast::canonical::{Enum, Module, Property, Record, Service, Type};
 use crate::ast::constraints::Constraint;
-use crate::ast::{
-    canonical::{Enum, Method, Module, Property, Record, Service, Type, Variant},
-    source::Name,
-};
 use askama::Template; // bring trait in scope
 use itertools::Itertools;
 use std::fs::File;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::string::ToString;
 use std::{fs, io};
 
@@ -96,7 +93,7 @@ fn generate_service(package: &String, service: &Service) -> String {
         .expect("Should work.")
 }
 
-fn generate_record(package: &String, record: &Record, with_imports: bool) -> String {
+fn generate_record(package: &String, record: &Record, _with_imports: bool) -> String {
     RecordTemplate { record, package }
         .render()
         .expect("Should work.")
@@ -211,7 +208,7 @@ fn encode_type(var_expr: &str, type_: &Type) -> String {
             encode_type(&"it".to_string(), type_)
         ),
         Type::Option(type_) => encode_type(&format!("{var_expr}"), type_),
-        Type::Ref(name, _) => format!("{var_expr}.encode()"),
+        Type::Ref(_, _) => format!("{var_expr}.encode()"),
     }
 }
 
@@ -408,6 +405,65 @@ import {package}.json.*
 import kotlinx.serialization.json.*
     "#;
     format!("package {package}.models{imports}\n\n{data}")
+}
+
+fn check_property(indent: &str, var_expr: &str, property: &Property) -> String {
+    let valid_property_expr = format!("{}Valid", property.name.value);
+    if property.constraints.is_empty() {
+        format!("val {valid_property_expr} = true")
+    } else if property.constraints.len() == 1 {
+        let constraint = &property.constraints[0];
+        if property.deps.is_empty() {
+            let condition = condition(var_expr, &constraint);
+            [
+                format!("var {valid_property_expr} = {condition}"),
+                format!("{indent}if (!{valid_property_expr}) {OPEN} "),
+                format!("{indent}    errors.error()"),
+                format!("{indent}{CLOSE}"),
+            ]
+            .join("\n")
+        } else {
+            let _deps = deps_condition(property);
+            let condition = condition(var_expr, &constraint);
+            [
+                format!("{indent}var {valid_property_expr} = {condition}"),
+                format!("{indent}if (!{valid_property_expr}) {OPEN} "),
+                format!("{indent}    errors.error()"),
+                format!("{indent}{CLOSE}"),
+            ]
+            .join("\n")
+        }
+    } else {
+        if property.deps.is_empty() {
+            let constraint = &property.constraints[0];
+            let condition = condition(var_expr, &constraint);
+            [
+                format!("{indent}if ({condition}) {OPEN} "),
+                format!("{indent}{CLOSE}"),
+            ]
+            .join("\n")
+        } else {
+            property
+                .constraints
+                .iter()
+                .map(|constraint| condition(var_expr, constraint))
+                .join("")
+        }
+    }
+}
+
+fn deps_condition(property: &Property) -> String {
+    if property.deps.is_empty() {
+        return "true".to_string();
+    } else if property.deps.len() == 1 {
+        return format!("{}Valid", property.deps[0]);
+    } else {
+        property
+            .deps
+            .iter()
+            .map(|dep_prop_name| format!("{dep_prop_name}Valid"))
+            .join(" && ")
+    }
 }
 
 fn condition(var_expr: &str, constraint: &Constraint) -> String {

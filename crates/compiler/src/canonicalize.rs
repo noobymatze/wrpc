@@ -1,4 +1,6 @@
-use crate::ast::canonical::{Expr, Property};
+use itertools::Itertools;
+
+use crate::ast::canonical::Expr;
 use crate::ast::constraints::Constraint;
 use crate::ast::source::Decl;
 use crate::ast::{canonical as can, source as src};
@@ -67,33 +69,58 @@ pub fn canonicalize(module: &src::Module) -> Result<can::Module, Vec<canonicaliz
     }
 }
 
+fn canonicalize_property<E, F>(
+    property: &src::Property,
+    map_err: F,
+) -> Result<can::Property, Vec<E>>
+where
+    F: FnMut(&canonicalize::Annotation) -> E,
+{
+    let mut annotations = vec![];
+    let mut constraints = vec![];
+    let mut errors = vec![];
+    match canonicalize_annotations(&property.annotations, &mut constraints, &mut annotations) {
+        Err(annotation_errors) => {
+            let mut annotation_errors = annotation_errors.iter().map(map_err).collect::<Vec<E>>();
+            errors.append(&mut annotation_errors);
+        }
+        Ok(()) => (),
+    };
+
+    let deps = compute_property_dependency(&property.name.value, &constraints)
+        .iter()
+        .cloned()
+        .collect_vec();
+
+    if errors.is_empty() {
+        Ok(can::Property {
+            comment: property.doc_comment.clone(),
+            name: property.name.clone(),
+            type_: parse_type(&property.type_),
+            annotations,
+            constraints,
+            deps,
+        })
+    } else {
+        Err(errors)
+    }
+}
+
 fn canonicalize_data(data: &src::Data) -> Result<can::Record, Vec<canonicalize::Record>> {
     let mut properties = vec![];
     let mut errors = vec![];
     for property in &data.properties {
-        let mut annotations = vec![];
-        let mut constraints = vec![];
-        match canonicalize_annotations(&property.annotations, &mut constraints, &mut annotations) {
-            Err(annotation_errors) => {
-                let mut annotation_errors = annotation_errors
-                    .iter()
-                    .map(|error| {
-                        canonicalize::Record::BadProperty(
-                            property.name.clone(),
-                            canonicalize::Property::BadAnnotation(error.clone()),
-                        )
-                    })
-                    .collect::<Vec<canonicalize::Record>>();
-                errors.append(&mut annotation_errors);
-            }
-            Ok(()) => properties.push(can::Property {
-                comment: property.doc_comment.clone(),
-                annotations,
-                constraints,
-                name: property.name.clone(),
-                type_: parse_type(&property.type_),
-            }),
-        };
+        let result = canonicalize_property(property, |error| {
+            canonicalize::Record::BadProperty(
+                property.name.clone(),
+                canonicalize::Property::BadAnnotation(error.clone()),
+            )
+        });
+
+        match result {
+            Err(mut prop_errors) => errors.append(&mut prop_errors),
+            Ok(prop) => properties.push(prop),
+        }
     }
 
     let property_deps = compute_property_dependencies(&properties);
@@ -170,30 +197,35 @@ fn canonicalize_data(data: &src::Data) -> Result<can::Record, Vec<canonicalize::
 /// {"zipcode": ["country"], "country": []}
 /// ```
 ///
-fn compute_property_dependencies(
-    properties: &Vec<can::Property>,
-) -> HashMap<String, HashSet<String>> {
+fn compute_property_dependencies(properties: &Vec<can::Property>) -> HashMap<String, &Vec<String>> {
     let mut dependencies = HashMap::new();
     for property in properties {
-        let mut deps = HashSet::new();
-        for constraint in &property.constraints {
-            constraint.collect_accessed_deps(&mut deps);
-        }
-        // Remove the current property, it's not a real dependency.
-        deps.remove(&property.name.value);
-        dependencies.insert(property.name.value.clone(), deps);
+        dependencies.insert(property.name.value.clone(), &property.deps);
     }
 
     dependencies
 }
 
-fn sorted_by_topology(graph: &HashMap<String, HashSet<String>>) -> Vec<String> {
+fn compute_property_dependency(
+    prop_name: &String,
+    constraints: &Vec<Constraint>,
+) -> HashSet<String> {
+    let mut deps = HashSet::new();
+    for constraint in constraints {
+        constraint.collect_accessed_deps(&mut deps);
+    }
+    // Remove the current property, it's not a real dependency.
+    deps.remove(prop_name);
+    deps
+}
+
+fn sorted_by_topology(graph: &HashMap<String, &Vec<String>>) -> Vec<String> {
     fn visit(
         node: &String,
         sorted_properties: &mut Vec<String>,
         visited: &mut HashSet<String>,
         temp_marks: &mut HashSet<String>,
-        graph: &HashMap<String, HashSet<String>>,
+        graph: &HashMap<String, &Vec<String>>,
     ) {
         if visited.contains(node) {
             return;
@@ -206,7 +238,7 @@ fn sorted_by_topology(graph: &HashMap<String, HashSet<String>>) -> Vec<String> {
 
         temp_marks.insert(node.clone());
         if let Some(deps) = graph.get(node) {
-            for dep in deps {
+            for dep in *deps {
                 visit(dep, sorted_properties, visited, temp_marks, graph);
             }
         }
@@ -445,29 +477,17 @@ fn canonicalize_variant(
     let mut properties = vec![];
     let mut errors = vec![];
     for property in &variant.properties {
-        let mut annotations = vec![];
-        let mut constraints = vec![];
-        match canonicalize_annotations(&property.annotations, &mut constraints, &mut annotations) {
-            Err(annotation_errors) => {
-                let mut annotation_errors = annotation_errors
-                    .iter()
-                    .map(|error| {
-                        canonicalize::Variant::BadProperty(
-                            property.name.clone(),
-                            canonicalize::Property::BadAnnotation(error.clone()),
-                        )
-                    })
-                    .collect::<Vec<canonicalize::Variant>>();
-                errors.append(&mut annotation_errors);
-            }
-            Ok(_) => properties.push(can::Property {
-                comment: property.doc_comment.clone(),
-                annotations,
-                constraints,
-                name: property.name.clone(),
-                type_: parse_type(&property.type_),
-            }),
-        };
+        let result = canonicalize_property(property, |error| {
+            canonicalize::Variant::BadProperty(
+                property.name.clone(),
+                canonicalize::Property::BadAnnotation(error.clone()),
+            )
+        });
+
+        match result {
+            Ok(property) => properties.push(property),
+            Err(mut prop_errors) => errors.append(&mut prop_errors),
+        }
     }
 
     let mut annotations = vec![];

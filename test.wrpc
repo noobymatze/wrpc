@@ -32,10 +32,20 @@ data AssociationData {
     name: String?,
 }
 
+data Person {
+    name: String,
+    age: Int32,
+    association: Association,
+}
+
 // The *AssociationService* manages associations and their data.
 service AssociationService {
 
+    #(example {:id 1 :name "Test" :createdAt "..."})
+    #(test (get :id (insert example) example))
     def get(id: Int64): Association?
+
+    def addPerson(person: Person): Association?
 
     def insert(data: AssociationData): Result<Error, Association>
 
@@ -56,6 +66,13 @@ data Club {
     association: Association,
     createdAt: DateTime,
     updatedAt: DateTime,
+}
+
+data Address {
+
+    postleitzahl: String,
+    // DE oder CH
+    land: String
 }
 
 data ClubData {
@@ -136,6 +153,10 @@ service ClubService {
     def update(data: ClubData): Result<Error, Club>
 
     def delete(id: Int64)
+
+}
+
+data Greet {
 
 }
 

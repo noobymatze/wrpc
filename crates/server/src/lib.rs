@@ -1,21 +1,45 @@
 use std::{path::PathBuf, sync::Arc};
 
-use axum::{extract::State, response::Html, routing::get, Router};
-use compiler::{
-    ast::canonical::Module,
-    docs::{self, render},
+use axum::{
+    extract::State,
+    http::StatusCode,
+    response::{Html, IntoResponse},
+    routing::get,
+    Router,
 };
-use dotenvy::dotenv;
+use compiler::docs::render;
+use compiler::print_errors;
 use tokio::net::TcpListener;
 use tower_http::{compression::CompressionLayer, trace::TraceLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Debug, Clone)]
 struct AppState {
-    module: Arc<Module>,
+    file: Arc<PathBuf>,
 }
 
-pub async fn run(module: &Module) {
+#[derive(Debug)]
+enum Error {
+    File(tokio::io::Error),
+    BadSyntax(),
+}
+
+impl IntoResponse for Error {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            Error::File(error) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:?}")).into_response()
+            }
+            Error::BadSyntax() => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Bad Syntax, check your server output"),
+            )
+                .into_response(),
+        }
+    }
+}
+
+pub async fn run(file: PathBuf) {
     //dotenv().expect("There should be a .env file");
 
     tracing_subscriber::registry()
@@ -30,7 +54,7 @@ pub async fn run(module: &Module) {
         .init();
 
     let state = AppState {
-        module: Arc::new(module.clone()),
+        file: Arc::new(file.clone()),
     };
 
     // build our application with a route
@@ -49,7 +73,19 @@ pub async fn run(module: &Module) {
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn index(State(state): State<AppState>) -> Html<String> {
-    let result = render(&state.module);
-    Html(result)
+async fn index(State(state): State<AppState>) -> Result<Html<String>, Error> {
+    let file = &*state.file;
+    let result = tokio::fs::read_to_string(file).await.map_err(Error::File)?;
+    let str = result.as_str();
+    match compiler::compile(Some(file.clone()), str) {
+        Ok(module) => {
+            let result = render(&module);
+            Ok(Html(result))
+        }
+
+        Err(error) => {
+            print_errors(file, str, error);
+            Err(Error::BadSyntax())
+        }
+    }
 }

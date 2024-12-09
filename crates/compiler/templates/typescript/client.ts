@@ -1,5 +1,5 @@
 {% if !imports.is_empty() %}
-import { {{imports}} } from './model.ts';
+import { {{imports}} } from './models.ts';
 {% endif %}
 
 export interface Client {
@@ -16,7 +16,7 @@ export interface {{ service.name.value }} {
     {%- for param in method.parameters %}
         {{ param.name.value }}: {{ self::generate_type_ref(package, param.type_) }}{% if !loop.last %},{% endif %}
     {%- endfor %}
-    ){% if let Some(return_type) = method.return_type %}: Promise<HttpResponse<{{ self::generate_type_ref(package, return_type) }}{% else %}void{% endif %}>>
+    ){% if let Some(return_type) = method.return_type %} => Promise<HttpResponse<{{ self::generate_type_ref(package, return_type) }}>>{% else %} => Promise<HttpResponse<void>>{% endif %}
     {%- endfor %}
 }
 {% endfor %}
@@ -29,13 +29,13 @@ export function {{ service.name.value }}(baseUrl: string): {{ service.name.value
         {%- for param in method.parameters %}
             {{ param.name.value }}: {{ self::generate_type_ref(package, param.type_) }}{% if !loop.last %},{% endif %}
         {%- endfor %}
-        ){% if let Some(return_type) = method.return_type %}: Promise<HttpResponse<{{ self::generate_type_ref(package, return_type) }}{% else %}void{% endif %}>> {
+        ){% if let Some(return_type) = method.return_type %}: Promise<HttpResponse<{{ self::generate_type_ref(package, return_type) }}>>{% else %}: Promise<HttpResponse<void>>{% endif %} {
             return request(baseUrl, "{{ service.get_method_path(method) }}", {
                 {%- for param in method.parameters %}
                 {{ param.name.value }}{% if !loop.last %},{% endif %}
                 {%- endfor %}
             });
-        }
+        }{%if !loop.last %},{% endif %}
         {% endfor %}
     }
 }
@@ -45,8 +45,8 @@ export function {{ service.name.value }}(baseUrl: string): {{ service.name.value
  * Represents an http response.
  */
 export type HttpResponse<T>
-    = { type: 'Ok'; value: T; }
-    | { type: 'Err'; error: HttpError; }
+    = { '@type': 'Ok'; value: T; }
+    | { '@type': 'Err'; error: HttpError; }
 
 /**
  * Represents any error, that could happen during a request.
@@ -84,19 +84,19 @@ async function request<Params, Ret>(
                 const statusCode = response.status;
                 const body = await response.text();
                 const headers = response.headers;
-                return {type: 'Err', error: {type: 'BadStatus', statusCode, headers, body}};
+                return {'@type': 'Err', error: {type: 'BadStatus', statusCode, headers, body}};
             }
 
             const value = await response.json();
-            return {type: 'Ok', value };
+            return {'@type': 'Ok', value };
         } catch (error) {
-            return {type: 'Err', error: {type: 'BadBody'}};
+            return {'@type': 'Err', error: {type: 'BadBody'}};
         }
     } catch (error) {
         if (error instanceof DOMException && error.message === 'Timeout') {
-            return {type: 'Err', error: {type: 'Timeout'}};
+            return {'@type': 'Err', error: {type: 'Timeout'}};
         }
 
-        return {type: 'Err', error: {type: 'Network'}};
+        return {'@type': 'Err', error: {type: 'Network'}};
     }
 }

@@ -23,7 +23,7 @@ pub enum Constraint {
 }
 
 impl Constraint {
-    /// Collect all properties this constraint depends on.
+    /// Collect all properties this constraint references.
     ///
     /// This might include the property, that this constraint is
     /// attached to, itself. It needs to be excluded after calling this function.

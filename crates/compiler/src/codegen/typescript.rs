@@ -1,5 +1,5 @@
 use crate::ast::{
-    canonical::{Enum, Method, Module, Parameter, Property, Record, Service, Type, Variant},
+    canonical::{Enum, Module, Record, Service, Type},
     source::Name,
 };
 use askama::Template;
@@ -54,18 +54,7 @@ fn generate_models(package: &String, module: &Module) -> String {
         .collect::<Vec<String>>()
         .join("\n\n");
 
-    let result_type = r#"
-/**
- * A {@link Result} either represents the result of a successful computation,
- * with a value of type {@link T} or a failed computation with an error of
- * type {@link E}.
- */
-export type Result<T, E>
-    = { type_: "Ok"; value: T; }
-    | { type_: "Err"; error: E; };
-    "#;
-
-    format!("{result_type}\n{records}\n\n{enums}\n")
+    format!("{records}\n\n{enums}\n")
 }
 
 fn find_used_types(module: &Module) -> HashSet<String> {
@@ -128,12 +117,25 @@ fn generate_client(package: &String, module: &Module) -> String {
     let imports = find_used_types(module).iter().join(", ");
 
     ServiceTemplate {
-        package: package,
+        package,
         services: &module.get_sorted_services(),
         imports: &imports,
     }
     .render()
     .expect("Should render Client")
+}
+
+fn generate_type_variables(variables: &Vec<Name>) -> String {
+    if variables.is_empty() {
+        return "".to_string();
+    }
+
+    let vars = variables
+        .iter()
+        .map(|variable| variable.value.clone())
+        .join(", ");
+
+    format!("<{vars}>")
 }
 
 fn generate_doc_comment(indent: &str, comment: &Option<String>) -> String {

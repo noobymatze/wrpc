@@ -1,6 +1,6 @@
 {% if !record.is_simple() %}
 {{ self::generate_doc_comment("", record.comment) }}
-export type {{ record.name.value }} =
+export type {{ record.name.value }}{{ self::generate_type_variables(record.type_variables) }} =
     {%- for variant in record.variants %}
     | { 
         '@type': "{{ variant.name.value}}";

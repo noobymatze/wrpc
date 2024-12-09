@@ -18,7 +18,20 @@ data class {{record.name.value}}(
     fun validate(): ErrorBundle {
         val errors = ErrorBundle()
         {%- for property in record.get_validation_ordered_properties() %}
-{{ self::check_property("        ", "this", property) }}
+        {% if !property.constraints.is_empty() %}
+        {%- let var_property_valid = format!("{}Valid", property.name.value) %}
+        var {{ var_property_valid }} = false
+        val {{var_property_valid}}Deps = {{ self::deps_condition(property) }}
+        if ({{var_property_valid}}Deps) {
+            {%- for (i, constraint) in property.constraints.iter().enumerate() %}
+            {{var_property_valid}} = {{ self::condition("this", constraint) }}
+            if (!{{var_property_valid}}) {
+                errors.error("")
+            }
+            {% endfor %}
+        }
+
+        {%- endif -%}
         {%- endfor -%}
 
         {%- for constraint in record.constraints -%}

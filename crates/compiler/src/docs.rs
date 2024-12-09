@@ -1,4 +1,4 @@
-use crate::ast::canonical::{Enum, Module, Parameter, Record, Service, Type};
+use crate::ast::canonical::{Enum, Module, Parameter, Record, Type};
 
 use askama::Template;
 use itertools::Itertools; // bring trait in scope

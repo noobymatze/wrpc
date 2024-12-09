@@ -1,7 +1,5 @@
 use clap::Parser;
-use compiler::codegen;
-use compiler::error::{self as wrpc, syntax};
-use compiler::reporting::WrpcDocBuilder;
+use compiler::{codegen, print_errors};
 use std::path::PathBuf;
 use std::{fs, io};
 
@@ -86,25 +84,12 @@ pub fn parse() -> Cli {
 
 pub async fn run(cli: Cli) -> Result<(), Error> {
     match cli.command {
-        Command::Server { file } => {
-            let result = fs::read_to_string(&file)?;
-            let str = result.as_str();
-            match compiler::compile(Some(file.clone()), str) {
-                Ok(module) => server::run(&module).await,
-
-                Err(wrpc::Error::BadSyntax(errors)) => {
-                    render_errors(&file, str, errors);
-                }
-                Err(wrpc::Error::BadCanonicalization(error)) => {
-                    println!("Bad canonicalization happened: {error:?}");
-                }
-            }
-        }
+        Command::Server { file } => server::run(file).await,
         Command::Check { file } => {
             let result = fs::read_to_string(&file)?;
             let str = result.as_str();
-            if let Err(wrpc::Error::BadSyntax(errors)) = compiler::parse(Some(file.clone()), str) {
-                render_errors(&file, str, errors);
+            if let Err(error) = compiler::parse(Some(file.clone()), str) {
+                print_errors(&file, str, error);
             }
         }
         Command::Parse { file } => {
@@ -115,11 +100,8 @@ pub async fn run(cli: Cli) -> Result<(), Error> {
                     println!("{:#?}", module)
                 }
 
-                Err(wrpc::Error::BadSyntax(errors)) => {
-                    render_errors(&file, str, errors);
-                }
-                Err(wrpc::Error::BadCanonicalization(error)) => {
-                    println!("Bad canonicalization happened: {error:?}");
+                Err(error) => {
+                    print_errors(&file, str, error);
                 }
             }
         }
@@ -163,33 +145,12 @@ pub async fn run(cli: Cli) -> Result<(), Error> {
                     codegen::generate(&module, &cmd)?;
                 }
 
-                Err(wrpc::Error::BadSyntax(errors)) => {
-                    render_errors(&file, str, errors);
-                }
-                Err(wrpc::Error::BadCanonicalization(error)) => {
-                    println!("Bad canonicalization happened: {error:?}");
+                Err(error) => {
+                    print_errors(file, str, error);
                 }
             }
         }
     }
 
     Ok(())
-}
-
-fn render_errors(filename: &PathBuf, str: &str, errors: Vec<syntax::Error>) {
-    let alloc = WrpcDocBuilder::new(str);
-    for error in errors {
-        match error {
-            wrpc::syntax::Error::ParseError(error) => {
-                let report = error.to_report(&alloc);
-                println!(
-                    "\x1b[31m{}\x1b[0m\n",
-                    report.render(
-                        &Some(filename.clone()),
-                        compiler::reporting::Target::Terminal
-                    )
-                );
-            }
-        }
-    }
 }

@@ -24,7 +24,7 @@ interface {{ service.name.value }} {
 
         /**
          * Mount all methods of the [{{ service.name.value }}].
-         * 
+         *
          * @param service the service to mount
          */
         fun Routing.service(service: {{ service.name.value }}) {

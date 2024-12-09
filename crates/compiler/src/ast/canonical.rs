@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::ast::source::Name;
 use crate::reporting::Region;
@@ -97,6 +97,7 @@ impl Record {
 pub struct Property {
     pub annotations: Vec<Expr>,
     pub constraints: Vec<Constraint>,
+    pub deps: Vec<String>,
     pub comment: Option<String>,
     pub name: Name,
     pub type_: Type,
