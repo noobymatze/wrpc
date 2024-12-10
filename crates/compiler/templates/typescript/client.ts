@@ -8,6 +8,20 @@ export interface Client {
     {%- endfor %}
 }
 
+/**
+ * 
+ * @param baseUrl 
+ * @returns 
+ */
+export function createClient(baseUrl: string): Client {
+    return {
+    {%- for service in services %}
+        {{ service.name.uncapitalized() }}: {{ service.name.value }}(baseUrl),
+    {%- endfor %}
+
+    }
+}
+
 {% for service in services %}
 export interface {{ service.name.value }} {
     {%- for method in service.get_sorted_methods() %}
