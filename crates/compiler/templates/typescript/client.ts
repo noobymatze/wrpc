@@ -2,6 +2,10 @@
 import { {{imports}} } from './models.ts';
 {% endif %}
 
+/**
+ * A `Client` can be used to request data from a
+ * backing wrpc server.
+ */
 export interface Client {
     {%- for service in services %}
     {{ service.name.uncapitalized() }}: {{ service.name.value }};
@@ -9,9 +13,11 @@ export interface Client {
 }
 
 /**
+ * Create a new production client, that can be used to request data 
+ * from a backing server at the given baseUrl.
  * 
- * @param baseUrl 
- * @returns 
+ * @param baseUrl the base url of the API
+ * @returns a new live client
  */
 export function createClient(baseUrl: string): Client {
     return {
@@ -23,6 +29,7 @@ export function createClient(baseUrl: string): Client {
 }
 
 {% for service in services %}
+{{ self::generate_doc_comment("", service.comment) }}
 export interface {{ service.name.value }} {
     {%- for method in service.get_sorted_methods() %}
 {{ self::generate_doc_comment("    ", method.comment) }}
